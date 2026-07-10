@@ -1,0 +1,8 @@
+# 統一換行:預設自動,關鍵腳本強制 LF(部署目標為 Linux/ARM)
+* text=auto
+*.sh text eol=lf
+mvnw text eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.png binary
+*.jpg binary

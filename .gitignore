@@ -1,0 +1,35 @@
+# === 環境變數與祕密(絕對不可 commit)===
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# === Java / Maven ===
+backend/target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+hs_err_pid*
+replay_pid*
+
+# === Node / 前端 ===
+node_modules/
+frontend/dist/
+frontend/coverage/
+*.tsbuildinfo
+
+# === IDE ===
+.idea/
+*.iml
+.vscode/
+!.vscode/extensions.json
+*.swp
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === 日誌與暫存 ===
+logs/
+*.log
