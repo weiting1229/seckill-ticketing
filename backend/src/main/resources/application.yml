@@ -1,0 +1,69 @@
+# 共用設定(所有 profile 生效)。
+# 敏感值一律走環境變數;本檔禁止出現任何祕密。
+# 資料來源等連線設定放在 dev / prod profile 文件中,
+# 整合測試由 Testcontainers @ServiceConnection 提供連線,不讀本檔的連線設定。
+spring:
+  application:
+    name: seckill-backend
+  threads:
+    virtual:
+      enabled: true   # Java 25 Virtual Threads
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+mybatis:
+  mapper-locations: classpath:mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus   # 僅暴露 health 與 prometheus,且僅限 Docker 內網存取
+
+server:
+  port: 8080
+  shutdown: graceful
+
+---
+# ===== dev:本地開發(中介軟體由 infra/docker-compose.dev.yml 提供)=====
+spring:
+  config:
+    activate:
+      on-profile: dev
+  datasource:
+    url: jdbc:postgresql://localhost:5432/${POSTGRES_DB:seckill}
+    username: ${POSTGRES_USER:seckill}
+    password: ${POSTGRES_PASSWORD}
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: ${RABBITMQ_USER}
+    password: ${RABBITMQ_PASSWORD}
+
+---
+# ===== prod:正式環境(容器間以 Docker 內網服務名互連,全部由環境變數注入)=====
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+  rabbitmq:
+    host: ${RABBITMQ_HOST}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER}
+    password: ${RABBITMQ_PASSWORD}
