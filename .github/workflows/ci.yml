@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend-test:
+    name: Backend(mvn verify + Testcontainers)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: mvn verify(單元 + 整合測試,Testcontainers 拉起 PG/Redis/RabbitMQ)
+        run: ./mvnw -B verify
+
+      - name: 上傳測試與覆蓋率報告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-reports
+          path: |
+            backend/target/surefire-reports
+            backend/target/failsafe-reports
+            backend/target/site/jacoco
+          retention-days: 7
+
+  frontend-check:
+    name: Frontend(lint + type-check + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: 安裝依賴
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint(oxlint + eslint,不自動修復)
+        run: pnpm ci:lint
+
+      - name: Type check
+        run: pnpm type-check
+
+      - name: Build
+        run: pnpm build-only
