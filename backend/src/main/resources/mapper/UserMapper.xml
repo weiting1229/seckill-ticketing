@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.seckill.auth.mapper.UserMapper">
+
+    <!-- role / status 為 enum,MyBatis 以 EnumTypeHandler 對應 VARCHAR;
+         時間欄位為 Instant,由 InstantTypeHandler 對應 TIMESTAMPTZ。
+         map-underscore-to-camel-case 已開啟,欄位自動對應駝峰屬性。 -->
+
+    <insert id="insert" parameterType="com.seckill.auth.domain.User">
+        INSERT INTO users (id, username, password_hash, role, status, created_at, updated_at)
+        VALUES (#{id}, #{username}, #{passwordHash}, #{role}, #{status}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <select id="findByUsername" resultType="com.seckill.auth.domain.User">
+        SELECT id, username, password_hash, role, status, created_at, updated_at
+        FROM users
+        WHERE username = #{username}
+    </select>
+
+    <select id="findById" resultType="com.seckill.auth.domain.User">
+        SELECT id, username, password_hash, role, status, created_at, updated_at
+        FROM users
+        WHERE id = #{id}
+    </select>
+
+    <select id="existsByUsername" resultType="boolean">
+        SELECT EXISTS(SELECT 1 FROM users WHERE username = #{username})
+    </select>
+
+</mapper>

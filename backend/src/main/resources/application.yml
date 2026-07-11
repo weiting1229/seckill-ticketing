@@ -17,6 +17,20 @@ mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
+seckill:
+  id:
+    # 單機 MVP 固定 0;未來多實例改由啟動時從 Redis 分配
+    worker-id: ${WORKER_ID:0}
+    datacenter-id: ${DATACENTER_ID:0}
+  jwt:
+    # 至少 256 bit;一律由環境變數注入,禁止硬編碼
+    secret: ${JWT_SECRET}
+    access-ttl: 15m
+    refresh-ttl: 7d
+  cors:
+    # 逗號分隔;dev 允許本機前端,prod 由環境變數覆蓋為正式網域
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+
 management:
   endpoints:
     web:
