@@ -30,7 +30,8 @@ public enum BizCode {
     // --- 搶購 3xxx ---
     SECKILL_NOT_STARTED(3001, "搶購尚未開始", HttpStatus.CONFLICT),
     SECKILL_ENDED(3002, "搶購已結束", HttpStatus.CONFLICT),
-    SECKILL_TICKET_NOT_ONLINE(3003, "票種未上線", HttpStatus.CONFLICT);
+    SECKILL_TICKET_NOT_ONLINE(3003, "票種未上線", HttpStatus.CONFLICT),
+    RATE_LIMITED(3004, "請求過於頻繁,請稍後再試", HttpStatus.TOO_MANY_REQUESTS);
 
     private final int code;
     private final String message;

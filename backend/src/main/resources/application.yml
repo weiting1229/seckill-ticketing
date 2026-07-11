@@ -34,6 +34,11 @@ seckill:
     # ADMIN 種子帳號(環境變數驅動,兩者皆設才建立;不設則略過)。憑證不入 repo。
     username: ${SECKILL_ADMIN_USERNAME:}
     password: ${SECKILL_ADMIN_PASSWORD:}
+  ratelimit:
+    # 搶購限流(Bucket4j + Redis)。每秒容量;正式環境可依壓測經 env 覆寫(設計文件第 10 節)。
+    global-capacity: ${SECKILL_RL_GLOBAL:3000}   # 全域 QPS 上限
+    user-capacity: ${SECKILL_RL_USER:2}          # 單用戶對 /seckill/purchase 每秒
+    ip-capacity: ${SECKILL_RL_IP:10}             # 單 IP 每秒
 
 management:
   endpoints:
