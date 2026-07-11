@@ -17,7 +17,15 @@ public enum BizCode {
     // --- 認證 1xxx ---
     USERNAME_ALREADY_EXISTS(1001, "使用者名稱已存在", HttpStatus.CONFLICT),
     INVALID_CREDENTIALS(1002, "帳號或密碼錯誤", HttpStatus.UNAUTHORIZED),
-    REFRESH_TOKEN_INVALID(1005, "refresh token 無效或已撤銷", HttpStatus.UNAUTHORIZED);
+    REFRESH_TOKEN_INVALID(1005, "refresh token 無效或已撤銷", HttpStatus.UNAUTHORIZED),
+
+    // --- 活動 / 票種 2xxx ---
+    EVENT_NOT_FOUND(2001, "活動不存在", HttpStatus.NOT_FOUND),
+    EVENT_STATUS_INVALID(2002, "活動狀態轉移非法", HttpStatus.CONFLICT),
+    EVENT_DELETE_FORBIDDEN(2003, "活動已含票種,不可刪除", HttpStatus.CONFLICT),
+    TICKET_TYPE_NOT_FOUND(2004, "票種不存在", HttpStatus.NOT_FOUND),
+    TICKET_TYPE_NOT_EDITABLE(2005, "票種已上線,不可修改或刪除", HttpStatus.CONFLICT),
+    TICKET_TIME_RANGE_INVALID(2006, "搶購時間區間非法(開始須早於結束)", HttpStatus.BAD_REQUEST);
 
     private final int code;
     private final String message;

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.seckill.event.mapper.ReconcileMapper">
+
+    <select id="countValidOrders" resultType="long">
+        SELECT COUNT(*)
+        FROM orders
+        WHERE ticket_type_id = #{ticketTypeId}
+          AND status IN ('PAID', 'PENDING_PAYMENT')
+    </select>
+
+    <select id="sumStockLogDelta" resultType="int">
+        SELECT COALESCE(SUM(delta), 0)
+        FROM stock_logs
+        WHERE ticket_type_id = #{ticketTypeId}
+    </select>
+
+</mapper>

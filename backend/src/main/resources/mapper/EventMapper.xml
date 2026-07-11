@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.seckill.event.mapper.EventMapper">
+
+    <!-- status 為 enum,以 EnumTypeHandler 對應 VARCHAR;時間為 Instant 對應 TIMESTAMPTZ。
+         map-underscore-to-camel-case 已開啟,欄位自動對應駝峰屬性。 -->
+
+    <sql id="cols">id, title, description, venue, event_time, status, created_at, updated_at</sql>
+
+    <insert id="insert" parameterType="com.seckill.event.domain.Event">
+        INSERT INTO events (id, title, description, venue, event_time, status, created_at, updated_at)
+        VALUES (#{id}, #{title}, #{description}, #{venue}, #{eventTime}, #{status}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <select id="findById" resultType="com.seckill.event.domain.Event">
+        SELECT <include refid="cols"/> FROM events WHERE id = #{id}
+    </select>
+
+    <update id="update" parameterType="com.seckill.event.domain.Event">
+        UPDATE events
+        SET title = #{title},
+            description = #{description},
+            venue = #{venue},
+            event_time = #{eventTime},
+            status = #{status},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM events WHERE id = #{id}
+    </delete>
+
+    <select id="findPublishedPage" resultType="com.seckill.event.domain.Event">
+        SELECT <include refid="cols"/>
+        FROM events
+        WHERE status = 'PUBLISHED'
+        ORDER BY event_time ASC, id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countPublished" resultType="long">
+        SELECT COUNT(*) FROM events WHERE status = 'PUBLISHED'
+    </select>
+
+    <select id="findPage" resultType="com.seckill.event.domain.Event">
+        SELECT <include refid="cols"/>
+        FROM events
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countAll" resultType="long">
+        SELECT COUNT(*) FROM events
+    </select>
+
+</mapper>
