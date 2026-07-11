@@ -2,11 +2,13 @@ package com.seckill.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 
 /**
  * M0 骨架:預設所有 endpoint 需要認證,僅明確列出的路徑可匿名。
@@ -28,6 +30,9 @@ public class SecurityConfig {
                         // Actuator 僅在 Docker 內網暴露(Caddy 不轉發 /actuator),供 Prometheus 抓取
                         .requestMatchers("/actuator/health", "/actuator/prometheus").permitAll()
                         .anyRequest().authenticated())
+                // 未認證存取受保護資源回 401(REST 正確語意;M1 JWT 沿用此 entry point)
+                .exceptionHandling(ex ->
+                        ex.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .httpBasic(basic -> basic.disable())
                 .formLogin(form -> form.disable());
         return http.build();
