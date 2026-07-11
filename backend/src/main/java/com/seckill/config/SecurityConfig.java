@@ -8,6 +8,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -54,6 +55,10 @@ public class SecurityConfig {
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/refresh").permitAll()
                         .requestMatchers("/api/v1/health").permitAll()
+                        // 公開活動查詢:僅 GET 匿名(列表與詳情)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/events", "/api/v1/events/*").permitAll()
+                        // admin API URL 層防護(方法層另有 @PreAuthorize,雙重防護)
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         // 僅內網可達(Caddy 不轉發),供 Prometheus 抓取
                         .requestMatchers("/actuator/health", "/actuator/prometheus").permitAll()
                         .anyRequest().authenticated())

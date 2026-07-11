@@ -30,6 +30,10 @@ seckill:
   cors:
     # 逗號分隔;dev 允許本機前端,prod 由環境變數覆蓋為正式網域
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  admin:
+    # ADMIN 種子帳號(環境變數驅動,兩者皆設才建立;不設則略過)。憑證不入 repo。
+    username: ${SECKILL_ADMIN_USERNAME:}
+    password: ${SECKILL_ADMIN_PASSWORD:}
 
 management:
   endpoints:
