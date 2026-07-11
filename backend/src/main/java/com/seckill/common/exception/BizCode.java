@@ -25,7 +25,12 @@ public enum BizCode {
     EVENT_DELETE_FORBIDDEN(2003, "活動已含票種,不可刪除", HttpStatus.CONFLICT),
     TICKET_TYPE_NOT_FOUND(2004, "票種不存在", HttpStatus.NOT_FOUND),
     TICKET_TYPE_NOT_EDITABLE(2005, "票種已上線,不可修改或刪除", HttpStatus.CONFLICT),
-    TICKET_TIME_RANGE_INVALID(2006, "搶購時間區間非法(開始須早於結束)", HttpStatus.BAD_REQUEST);
+    TICKET_TIME_RANGE_INVALID(2006, "搶購時間區間非法(開始須早於結束)", HttpStatus.BAD_REQUEST),
+
+    // --- 搶購 3xxx ---
+    SECKILL_NOT_STARTED(3001, "搶購尚未開始", HttpStatus.CONFLICT),
+    SECKILL_ENDED(3002, "搶購已結束", HttpStatus.CONFLICT),
+    SECKILL_TICKET_NOT_ONLINE(3003, "票種未上線", HttpStatus.CONFLICT);
 
     private final int code;
     private final String message;
