@@ -145,10 +145,10 @@ class SeckillTokenIT extends AbstractAdminIntegrationTest {
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
-    // ---- 領取後 Redis 有 token 且帶約 60s TTL ----
+    // ---- 領取後 Redis 只存雜湊(非明文)且帶約 60s TTL ----
 
     @Test
-    void issuedTokenStoredWithTtl() {
+    void issuedTokenStoredAsHashWithTtl() {
         String admin = createAdminToken();
         String eventId = createEvent(admin);
         String ttId = createTicketType(admin, eventId,
@@ -156,13 +156,32 @@ class SeckillTokenIT extends AbstractAdminIntegrationTest {
         warmup(admin, ttId);
 
         long userId = insertUser(Role.USER).getId();
-        String token = tokenService.issue(userId, Long.parseLong(ttId));
+        long tt = Long.parseLong(ttId);
+        String token = tokenService.issue(userId, tt);
 
         String key = TOKEN_KEY + userId + ":" + ttId;
-        assertThat(redisTemplate.opsForValue().get(key)).isEqualTo(token);
+        String stored = redisTemplate.opsForValue().get(key);
+        // Redis 內為雜湊,不得等於明文 token(防禦縱深)
+        assertThat(stored).isNotBlank().isNotEqualTo(token);
         Long ttl = redisTemplate.getExpire(key);
         assertThat(ttl).isNotNull();
         assertThat(ttl).isBetween(1L, 60L);
+        // 明文仍可通過校驗(後端雜湊後比對)
+        assertThat(tokenService.consume(userId, tt, token)).isTrue();
+    }
+
+    // ---- 防舞弊:ADMIN 不得領搶購 token(URL + 方法層限 ROLE_USER)----
+
+    @Test
+    void adminForbiddenFromSeckill() {
+        String admin = createAdminToken();
+        String eventId = createEvent(admin);
+        String ttId = createTicketType(admin, eventId,
+                Instant.now().minus(1, ChronoUnit.HOURS), Instant.now().plus(1, ChronoUnit.DAYS));
+        warmup(admin, ttId);
+
+        ResponseEntity<String> resp = requestToken(admin, ttId);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
     // ---- 原子一次性消耗:第二次失敗、錯誤 token 失敗 ----

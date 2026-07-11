@@ -59,6 +59,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/events", "/api/v1/events/*").permitAll()
                         // admin API URL 層防護(方法層另有 @PreAuthorize,雙重防護)
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                        // 搶購 API 僅限 ROLE_USER:防止 admin 挾權偷跑(防舞弊);方法層另有 @PreAuthorize
+                        .requestMatchers("/api/v1/seckill/**").hasRole("USER")
                         // 僅內網可達(Caddy 不轉發),供 Prometheus 抓取
                         .requestMatchers("/actuator/health", "/actuator/prometheus").permitAll()
                         .anyRequest().authenticated())
