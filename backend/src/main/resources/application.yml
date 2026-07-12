@@ -11,6 +11,13 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  rabbitmq:
+    # 生產端可靠性(設計文件第 7 節):correlated confirms + mandatory + returns,
+    # 供 OrderMessagePublisher 同步判定發送成功;失敗則回補 Redis。
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
 
 mybatis:
   mapper-locations: classpath:mapper/**/*.xml
