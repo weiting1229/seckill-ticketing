@@ -64,4 +64,8 @@
         WHERE id = #{id} AND stock_remaining > 0
     </update>
 
+    <select id="findOnlineIds" resultType="long">
+        SELECT id FROM ticket_types WHERE status = 'ONLINE'
+    </select>
+
 </mapper>

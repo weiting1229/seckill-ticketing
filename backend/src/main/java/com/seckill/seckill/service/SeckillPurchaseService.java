@@ -9,7 +9,7 @@ import com.seckill.order.mq.OrderMessagePublisher;
 import com.seckill.order.service.OrderResultCache;
 import com.seckill.seckill.dto.PurchaseResponse;
 import com.seckill.seckill.dto.SeckillResultResponse;
-import com.seckill.seckill.metrics.SeckillMetrics;
+import com.seckill.common.metrics.SeckillMetrics;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,6 +78,7 @@ public class SeckillPurchaseService {
         if (!publisher.publish(message)) {
             // 發送未確認:回補 Redis 庫存與已購,回錯(絕不留下扣了庫存卻無訂單的狀態)
             stockCache.revert(ticketTypeId, userId);
+            metrics.recordStockRevert(tt);
             metrics.incrementRequest("enqueue_failed", tt);
             log.error("MQ 發送失敗,已回補 Redis requestId={} ticketTypeId={}", requestId, ticketTypeId);
             throw new BusinessException(BizCode.SECKILL_ENQUEUE_FAILED);

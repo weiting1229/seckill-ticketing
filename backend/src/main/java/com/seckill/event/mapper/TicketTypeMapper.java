@@ -31,4 +31,7 @@ public interface TicketTypeMapper {
      * {@code WHERE stock_remaining > 0};回傳影響行數,0 代表扣減失敗(消費者須回補 Redis 並標記 FAIL)。
      */
     int deductStock(@Param("id") long id, @Param("updatedAt") Instant updatedAt);
+
+    /** 已上線(ONLINE)票種 id 清單;供 Redis 庫存 gauge 定時同步。 */
+    List<Long> findOnlineIds();
 }

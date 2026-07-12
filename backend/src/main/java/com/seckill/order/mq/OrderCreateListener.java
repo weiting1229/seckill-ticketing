@@ -1,6 +1,7 @@
 package com.seckill.order.mq;
 
 import com.rabbitmq.client.Channel;
+import com.seckill.common.metrics.SeckillMetrics;
 import com.seckill.config.RabbitConfig;
 import com.seckill.event.service.StockCache;
 import com.seckill.order.service.DbStockDepletedException;
@@ -38,13 +39,15 @@ public class OrderCreateListener {
     private final OrderResultCache resultCache;
     private final StockCache stockCache;
     private final RabbitTemplate rabbitTemplate;
+    private final SeckillMetrics metrics;
 
     public OrderCreateListener(OrderCreateService orderCreateService, OrderResultCache resultCache,
-                               StockCache stockCache, RabbitTemplate rabbitTemplate) {
+                               StockCache stockCache, RabbitTemplate rabbitTemplate, SeckillMetrics metrics) {
         this.orderCreateService = orderCreateService;
         this.resultCache = resultCache;
         this.stockCache = stockCache;
         this.rabbitTemplate = rabbitTemplate;
+        this.metrics = metrics;
     }
 
     @RabbitListener(queues = RabbitConfig.ORDER_QUEUE)
@@ -56,6 +59,10 @@ public class OrderCreateListener {
         try {
             orderCreateService.createOrder(message);
             resultCache.writeSuccess(message.requestId(), message.orderId());
+            // 從發 MQ(訊息 timestamp)到落庫的耗時
+            metrics.recordOrderCreateDuration(
+                    String.valueOf(message.ticketTypeId()),
+                    System.currentTimeMillis() - message.timestamp());
             channel.basicAck(deliveryTag, false);
         } catch (DuplicateKeyException e) {
             // 冪等:此 requestId(或該 user+票種)已建過訂單,直接視為已處理
@@ -64,6 +71,7 @@ public class OrderCreateListener {
         } catch (DbStockDepletedException e) {
             // DB 扣減失敗(異常訊號):回補 Redis 並標記 FAIL,不重試
             stockCache.revert(message.ticketTypeId(), message.userId());
+            metrics.recordStockRevert(String.valueOf(message.ticketTypeId()));
             resultCache.writeFail(message.requestId(), "STOCK_DEPLETED");
             log.error("建單時 DB 售罄,已回補 Redis 並標記 FAIL requestId={}", message.requestId(), e);
             channel.basicAck(deliveryTag, false);

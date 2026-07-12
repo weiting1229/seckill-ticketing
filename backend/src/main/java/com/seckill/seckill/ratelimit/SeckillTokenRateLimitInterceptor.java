@@ -2,7 +2,7 @@ package com.seckill.seckill.ratelimit;
 
 import com.seckill.common.exception.BizCode;
 import com.seckill.common.exception.BusinessException;
-import com.seckill.seckill.metrics.SeckillMetrics;
+import com.seckill.common.metrics.SeckillMetrics;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.stereotype.Component;
