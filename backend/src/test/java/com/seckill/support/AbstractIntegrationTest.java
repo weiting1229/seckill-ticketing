@@ -46,5 +46,9 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.rabbitmq.username", RABBITMQ::getAdminUsername);
         registry.add("spring.rabbitmq.password", RABBITMQ::getAdminPassword);
         registry.add("seckill.jwt.secret", () -> TEST_JWT_SECRET);
+        // 兜底排程在測試中不自動觸發(初始延遲拉遠),改由 OrderExpirySchedulerIT 直呼 sweepOnce() 驗證,
+        // 避免自動掃描非同步取消其他測試殘留的過期 PENDING 訂單造成 flakiness。
+        registry.add("order.expiry-sweep.initial-delay-ms", () -> 3_600_000);
+        registry.add("order.expiry-sweep.interval-ms", () -> 3_600_000);
     }
 }
