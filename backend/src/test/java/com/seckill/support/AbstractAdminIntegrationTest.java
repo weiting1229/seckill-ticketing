@@ -71,11 +71,15 @@ public abstract class AbstractAdminIntegrationTest extends AbstractIntegrationTe
         return user;
     }
 
-    private String createUserWithRole(Role role) {
-        User user = insertUser(role);
+    /** 以指定帳號登入取得 access token;供需要同時知道 userId(insertUser 回傳)與 token 的訂單測試。 */
+    protected String tokenFor(User user) {
         ResponseEntity<String> login = restTemplate.postForEntity("/api/v1/auth/login",
                 Map.of("username", user.getUsername(), "password", PASSWORD), String.class);
         return json(login).path("data").path("accessToken").asText();
+    }
+
+    private String createUserWithRole(Role role) {
+        return tokenFor(insertUser(role));
     }
 
     // ---- HTTP 輔助 ----

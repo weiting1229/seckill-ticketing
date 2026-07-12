@@ -36,7 +36,11 @@ public enum BizCode {
     SECKILL_DUPLICATE_PURCHASE(3006, "您已購買過此票種(每人限購一張)", HttpStatus.CONFLICT),
     SECKILL_INVALID_TOKEN(3007, "搶購憑證無效或已使用,請重新領取", HttpStatus.FORBIDDEN),
     SECKILL_NOT_WARMED(3008, "票種尚未就緒", HttpStatus.CONFLICT),
-    SECKILL_ENQUEUE_FAILED(3009, "系統忙碌,請稍後再試", HttpStatus.SERVICE_UNAVAILABLE);
+    SECKILL_ENQUEUE_FAILED(3009, "系統忙碌,請稍後再試", HttpStatus.SERVICE_UNAVAILABLE),
+
+    // --- 訂單 4xxx ---
+    ORDER_NOT_FOUND(4001, "訂單不存在", HttpStatus.NOT_FOUND),
+    ORDER_STATUS_INVALID(4002, "訂單狀態非法,無法支付", HttpStatus.CONFLICT);
 
     private final int code;
     private final String message;
