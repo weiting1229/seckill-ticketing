@@ -31,7 +31,12 @@ public enum BizCode {
     SECKILL_NOT_STARTED(3001, "搶購尚未開始", HttpStatus.CONFLICT),
     SECKILL_ENDED(3002, "搶購已結束", HttpStatus.CONFLICT),
     SECKILL_TICKET_NOT_ONLINE(3003, "票種未上線", HttpStatus.CONFLICT),
-    RATE_LIMITED(3004, "請求過於頻繁,請稍後再試", HttpStatus.TOO_MANY_REQUESTS);
+    RATE_LIMITED(3004, "請求過於頻繁,請稍後再試", HttpStatus.TOO_MANY_REQUESTS),
+    SECKILL_SOLD_OUT(3005, "票種已售罄", HttpStatus.CONFLICT),
+    SECKILL_DUPLICATE_PURCHASE(3006, "您已購買過此票種(每人限購一張)", HttpStatus.CONFLICT),
+    SECKILL_INVALID_TOKEN(3007, "搶購憑證無效或已使用,請重新領取", HttpStatus.FORBIDDEN),
+    SECKILL_NOT_WARMED(3008, "票種尚未就緒", HttpStatus.CONFLICT),
+    SECKILL_ENQUEUE_FAILED(3009, "系統忙碌,請稍後再試", HttpStatus.SERVICE_UNAVAILABLE);
 
     private final int code;
     private final String message;
