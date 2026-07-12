@@ -18,6 +18,11 @@ spring:
     publisher-returns: true
     template:
       mandatory: true
+    listener:
+      simple:
+        # 手動 ack:業務成功才 ack(設計文件第 7 節);消費併發從 4 起,依壓測調整
+        acknowledge-mode: manual
+        concurrency: 4
 
 mybatis:
   mapper-locations: classpath:mapper/**/*.xml

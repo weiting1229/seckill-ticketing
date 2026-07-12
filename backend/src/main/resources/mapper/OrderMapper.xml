@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.seckill.order.mapper.OrderMapper">
+
+    <!-- status 為 enum 對應 VARCHAR;price 為 BigDecimal 對應 NUMERIC;
+         時間為 Instant 對應 TIMESTAMPTZ。map-underscore-to-camel-case 已開啟。 -->
+
+    <sql id="cols">
+        id, user_id, event_id, ticket_type_id, price, status, request_id,
+        created_at, updated_at, paid_at, expire_at
+    </sql>
+
+    <insert id="insert" parameterType="com.seckill.order.domain.Order">
+        INSERT INTO orders
+            (id, user_id, event_id, ticket_type_id, price, status, request_id,
+             created_at, updated_at, expire_at)
+        VALUES
+            (#{id}, #{userId}, #{eventId}, #{ticketTypeId}, #{price}, #{status}, #{requestId},
+             #{createdAt}, #{updatedAt}, #{expireAt})
+    </insert>
+
+    <select id="findByRequestId" resultType="com.seckill.order.domain.Order">
+        SELECT <include refid="cols"/> FROM orders WHERE request_id = #{requestId}
+    </select>
+
+</mapper>

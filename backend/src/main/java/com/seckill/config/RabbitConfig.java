@@ -5,6 +5,7 @@ import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
+import org.springframework.amqp.support.converter.DefaultJackson2JavaTypeMapper;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
@@ -68,9 +69,16 @@ public class RabbitConfig {
         return BindingBuilder.bind(orderDlq()).to(orderDlx()).with(ORDER_DLQ_ROUTING_KEY);
     }
 
-    /** JSON 訊息轉換;生產/消費共用。Boot 會自動注入至 RabbitTemplate 與監聽容器。 */
+    /**
+     * JSON 訊息轉換;生產/消費共用。Boot 會自動注入至 RabbitTemplate 與監聽容器。
+     * 以 __TypeId__ header 還原型別時,僅信任本專案訊息套件(安全預設,避免反序列化任意類別)。
+     */
     @Bean
     public MessageConverter jsonMessageConverter() {
-        return new Jackson2JsonMessageConverter();
+        Jackson2JsonMessageConverter converter = new Jackson2JsonMessageConverter();
+        DefaultJackson2JavaTypeMapper typeMapper = new DefaultJackson2JavaTypeMapper();
+        typeMapper.setTrustedPackages("com.seckill.order.mq");
+        converter.setJavaTypeMapper(typeMapper);
+        return converter;
     }
 }

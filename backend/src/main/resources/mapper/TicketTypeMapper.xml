@@ -57,4 +57,11 @@
         WHERE id = #{id}
     </update>
 
+    <!-- 防超賣底線:條件扣減,影響行數 0 即扣減失敗 -->
+    <update id="deductStock">
+        UPDATE ticket_types
+        SET stock_remaining = stock_remaining - 1, updated_at = #{updatedAt}
+        WHERE id = #{id} AND stock_remaining > 0
+    </update>
+
 </mapper>

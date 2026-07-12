@@ -25,4 +25,10 @@ public interface TicketTypeMapper {
 
     /** 票種上線:冪等地將 status 設為 ONLINE;回傳影響行數。 */
     int markOnline(@Param("id") long id, @Param("updatedAt") Instant updatedAt);
+
+    /**
+     * 防超賣的最後一道防線(設計文件第 5 節):條件扣減 DB 庫存。
+     * {@code WHERE stock_remaining > 0};回傳影響行數,0 代表扣減失敗(消費者須回補 Redis 並標記 FAIL)。
+     */
+    int deductStock(@Param("id") long id, @Param("updatedAt") Instant updatedAt);
 }
