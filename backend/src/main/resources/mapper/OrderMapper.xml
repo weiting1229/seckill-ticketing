@@ -24,4 +24,48 @@
         SELECT <include refid="cols"/> FROM orders WHERE request_id = #{requestId}
     </select>
 
+    <select id="findById" resultType="com.seckill.order.domain.Order">
+        SELECT <include refid="cols"/> FROM orders WHERE id = #{id}
+    </select>
+
+    <!-- 超時取消:狀態機條件 UPDATE,僅 PENDING_PAYMENT 可轉 EXPIRED;paid_at 不動。
+         影響行數 0 即非法轉移 / 已終態(no-op)。 -->
+    <update id="expireIfPending">
+        UPDATE orders
+        SET status = 'EXPIRED', updated_at = #{updatedAt}
+        WHERE id = #{id} AND status = 'PENDING_PAYMENT'
+    </update>
+
+    <!-- 模擬支付:狀態機條件 UPDATE,僅本人且 PENDING_PAYMENT 可轉 PAID。
+         影響行數 0 即不存在 / 非本人 / 狀態非法(由 service 區分 4001 / 4002)。 -->
+    <update id="payIfPending">
+        UPDATE orders
+        SET status = 'PAID', paid_at = #{paidAt}, updated_at = #{updatedAt}
+        WHERE id = #{id} AND user_id = #{userId} AND status = 'PENDING_PAYMENT'
+    </update>
+
+    <!-- 我的訂單分頁,依 created_at DESC(走 idx_orders_user(user_id, created_at DESC));
+         id DESC 作為穩定 tiebreaker(同秒建立時序不亂)。 -->
+    <select id="findPageByUser" resultType="com.seckill.order.domain.Order">
+        SELECT <include refid="cols"/>
+        FROM orders
+        WHERE user_id = #{userId}
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countByUser" resultType="long">
+        SELECT COUNT(*) FROM orders WHERE user_id = #{userId}
+    </select>
+
+    <!-- 兜底排程:逾時未支付訂單 id。status='PENDING_PAYMENT' 命中部分索引 idx_orders_status_expire,
+         expire_at < now 走該索引範圍;expire_at ASC 先處理最舊逾時者。 -->
+    <select id="findExpiredPendingIds" resultType="long">
+        SELECT id
+        FROM orders
+        WHERE status = 'PENDING_PAYMENT' AND expire_at &lt; #{now}
+        ORDER BY expire_at ASC
+        LIMIT #{limit}
+    </select>
+
 </mapper>

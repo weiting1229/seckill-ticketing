@@ -64,6 +64,13 @@
         WHERE id = #{id} AND stock_remaining > 0
     </update>
 
+    <!-- 超時取消回補:與 deductStock 對稱;由取消服務於訂單成功轉終態後同事務呼叫 -->
+    <update id="revertStock">
+        UPDATE ticket_types
+        SET stock_remaining = stock_remaining + 1, updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
     <select id="findOnlineIds" resultType="long">
         SELECT id FROM ticket_types WHERE status = 'ONLINE'
     </select>

@@ -32,6 +32,12 @@ public interface TicketTypeMapper {
      */
     int deductStock(@Param("id") long id, @Param("updatedAt") Instant updatedAt);
 
+    /**
+     * 超時取消回補 DB 庫存(設計文件第 5 節反向操作):{@code stock_remaining + 1}。
+     * 僅在訂單由 PENDING_PAYMENT 成功轉終態後於同一事務內呼叫,故無需條件守衛;回傳影響行數。
+     */
+    int revertStock(@Param("id") long id, @Param("updatedAt") Instant updatedAt);
+
     /** 已上線(ONLINE)票種 id 清單;供 Redis 庫存 gauge 定時同步。 */
     List<Long> findOnlineIds();
 }
