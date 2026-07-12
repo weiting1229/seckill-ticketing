@@ -21,8 +21,9 @@ import org.springframework.stereotype.Component;
  * 建單消費者(設計文件第 7 節):手動 ack、消費併發 4(application.yml)。
  *
  * <ul>
- *   <li><b>成功</b>:落庫 → 寫 {@code SUCCESS:orderId} → ack。</li>
- *   <li><b>冪等</b>:唯一鍵衝突(DuplicateKeyException)視為已處理 → 補寫 SUCCESS → ack。</li>
+ *   <li><b>成功</b>:落庫 → 寫 {@code SUCCESS:orderId} → 發延遲取消訊息(15 分鐘後超時取消)→ ack。</li>
+ *   <li><b>冪等</b>:唯一鍵衝突(DuplicateKeyException)視為已處理 → 補寫 SUCCESS → ack
+ *       (<b>不</b>重發延遲訊息:首次成功已發過,重複發雖無害仍避免之)。</li>
  *   <li><b>DB 售罄</b>(異常訊號):回補 Redis 庫存 → 寫 {@code FAIL} → ack(不重試)。</li>
  *   <li><b>未預期例外</b>:依 {@code x-retry-count} header 重試,超過 3 次 → nack(requeue=false)
  *       死信至 DLQ,人工介入。</li>
@@ -40,14 +41,17 @@ public class OrderCreateListener {
     private final StockCache stockCache;
     private final RabbitTemplate rabbitTemplate;
     private final SeckillMetrics metrics;
+    private final OrderDelayPublisher orderDelayPublisher;
 
     public OrderCreateListener(OrderCreateService orderCreateService, OrderResultCache resultCache,
-                               StockCache stockCache, RabbitTemplate rabbitTemplate, SeckillMetrics metrics) {
+                               StockCache stockCache, RabbitTemplate rabbitTemplate, SeckillMetrics metrics,
+                               OrderDelayPublisher orderDelayPublisher) {
         this.orderCreateService = orderCreateService;
         this.resultCache = resultCache;
         this.stockCache = stockCache;
         this.rabbitTemplate = rabbitTemplate;
         this.metrics = metrics;
+        this.orderDelayPublisher = orderDelayPublisher;
     }
 
     @RabbitListener(queues = RabbitConfig.ORDER_QUEUE)
@@ -63,6 +67,9 @@ public class OrderCreateListener {
             metrics.recordOrderCreateDuration(
                     String.valueOf(message.ticketTypeId()),
                     System.currentTimeMillis() - message.timestamp());
+            // 建單成功即發延遲取消訊息(僅成功路徑;15 分鐘未支付則超時取消)。best-effort,失敗由兜底排程兜底
+            orderDelayPublisher.publish(new OrderDelayMessage(
+                    message.orderId(), message.ticketTypeId(), message.userId()));
             channel.basicAck(deliveryTag, false);
         } catch (DuplicateKeyException e) {
             // 冪等:此 requestId(或該 user+票種)已建過訂單,直接視為已處理

@@ -53,6 +53,17 @@ seckill:
     ip-capacity: ${SECKILL_RL_IP:10}                    # 單 IP 每秒(/seckill/purchase)
     token-user-capacity: ${SECKILL_RL_TOKEN_USER:5}     # 單用戶領 token(/seckill/token)每秒
 
+order:
+  delay:
+    # 支付逾時取消延遲(設計文件第 7 節):order.delay.queue 的 x-message-ttl,預設 15 分鐘。
+    # 所有環境一致(避免同名 durable 佇列以不同參數重複宣告);測試提速改用逐訊息 expiration(見 ADR 0005)。
+    ttl-ms: ${ORDER_DELAY_TTL_MS:900000}
+  expiry-sweep:
+    # 兜底排程(belt-and-suspenders,設計文件第 5、7 節):防延遲訊息遺失,定期掃逾時未支付訂單取消回補。
+    interval-ms: ${ORDER_EXPIRY_SWEEP_INTERVAL_MS:60000}          # fixedDelay 間隔
+    initial-delay-ms: ${ORDER_EXPIRY_SWEEP_INITIAL_DELAY_MS:60000} # 啟動後首次延遲
+    batch-limit: ${ORDER_EXPIRY_SWEEP_BATCH_LIMIT:500}            # 單次掃描批次上限
+
 management:
   endpoints:
     web:
