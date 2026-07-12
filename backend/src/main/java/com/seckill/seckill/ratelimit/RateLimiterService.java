@@ -18,21 +18,25 @@ public class RateLimiterService {
     private static final String GLOBAL_KEY = "seckill:rl:global";
     private static final String USER_KEY_PREFIX = "seckill:rl:user:";
     private static final String IP_KEY_PREFIX = "seckill:rl:ip:";
+    private static final String TOKEN_USER_KEY_PREFIX = "seckill:rl:token:user:";
 
     private final ProxyManager<String> proxyManager;
     private final BucketConfiguration globalConfig;
     private final BucketConfiguration userConfig;
     private final BucketConfiguration ipConfig;
+    private final BucketConfiguration tokenUserConfig;
 
     public RateLimiterService(
             ProxyManager<String> proxyManager,
             @Value("${seckill.ratelimit.global-capacity:3000}") long globalCapacity,
             @Value("${seckill.ratelimit.user-capacity:2}") long userCapacity,
-            @Value("${seckill.ratelimit.ip-capacity:10}") long ipCapacity) {
+            @Value("${seckill.ratelimit.ip-capacity:10}") long ipCapacity,
+            @Value("${seckill.ratelimit.token-user-capacity:5}") long tokenUserCapacity) {
         this.proxyManager = proxyManager;
         this.globalConfig = perSecond(globalCapacity);
         this.userConfig = perSecond(userCapacity);
         this.ipConfig = perSecond(ipCapacity);
+        this.tokenUserConfig = perSecond(tokenUserCapacity);
     }
 
     /** capacity 個 token,每秒 greedy 補滿(平滑速率,避免整秒邊界爆量)。 */
@@ -55,5 +59,13 @@ public class RateLimiterService {
     /** 單 IP 速率。 */
     public boolean tryIp(String ip) {
         return proxyManager.getProxy(IP_KEY_PREFIX + ip, () -> ipConfig).tryConsume(1);
+    }
+
+    /**
+     * 領取 token 的單用戶速率(較寬鬆,專屬 /seckill/token)。以 userId 為 key:
+     * 保護 token 端點的 DB 查詢不被單一帳號狂刷,又不與單 IP 混用(避免測試共用 localhost 互擾)。
+     */
+    public boolean tryTokenUser(long userId) {
+        return proxyManager.getProxy(TOKEN_USER_KEY_PREFIX + userId, () -> tokenUserConfig).tryConsume(1);
     }
 }

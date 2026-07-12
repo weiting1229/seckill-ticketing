@@ -203,6 +203,32 @@ class SeckillTokenIT extends AbstractAdminIntegrationTest {
         assertThat(tokenService.consume(userId, tt, token)).isFalse();  // 已焚,再用失敗
     }
 
+    // ---- token 端點限流:單一帳號快打會出現 429(以 userId 為 key,不與其他測試互擾)----
+
+    @Test
+    void tokenEndpointRateLimitsPerUser() {
+        String admin = createAdminToken();
+        String user = createUserToken();
+        String eventId = createEvent(admin);
+        String ttId = createTicketType(admin, eventId,
+                Instant.now().minus(1, ChronoUnit.HOURS), Instant.now().plus(1, ChronoUnit.DAYS));
+        warmup(admin, ttId);
+
+        // 容量 5/s,連打 20 次(遠超補充速度)必出現至少一次 429;首次應為 200
+        boolean sawOk = false;
+        boolean saw429 = false;
+        for (int i = 0; i < 20; i++) {
+            HttpStatus status = (HttpStatus) requestToken(user, ttId).getStatusCode();
+            if (status == HttpStatus.OK) {
+                sawOk = true;
+            } else if (status == HttpStatus.TOO_MANY_REQUESTS) {
+                saw429 = true;
+            }
+        }
+        assertThat(sawOk).as("應有成功的領取").isTrue();
+        assertThat(saw429).as("快打應觸發 429 限流").isTrue();
+    }
+
     // ---- 併發消耗同一 token:恰一個通過 ----
 
     @Test

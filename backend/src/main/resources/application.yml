@@ -36,9 +36,10 @@ seckill:
     password: ${SECKILL_ADMIN_PASSWORD:}
   ratelimit:
     # 搶購限流(Bucket4j + Redis)。每秒容量;正式環境可依壓測經 env 覆寫(設計文件第 10 節)。
-    global-capacity: ${SECKILL_RL_GLOBAL:3000}   # 全域 QPS 上限
-    user-capacity: ${SECKILL_RL_USER:2}          # 單用戶對 /seckill/purchase 每秒
-    ip-capacity: ${SECKILL_RL_IP:10}             # 單 IP 每秒
+    global-capacity: ${SECKILL_RL_GLOBAL:3000}          # 全域 QPS 上限(/seckill/purchase)
+    user-capacity: ${SECKILL_RL_USER:2}                 # 單用戶對 /seckill/purchase 每秒
+    ip-capacity: ${SECKILL_RL_IP:10}                    # 單 IP 每秒(/seckill/purchase)
+    token-user-capacity: ${SECKILL_RL_TOKEN_USER:5}     # 單用戶領 token(/seckill/token)每秒
 
 management:
   endpoints:

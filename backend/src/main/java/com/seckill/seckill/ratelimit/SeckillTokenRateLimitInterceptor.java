@@ -9,17 +9,17 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 /**
- * 搶購下單限流攔截器(掛在 /api/v1/seckill/purchase)。於 JWT 認證後、controller 前執行三層檢查:
- * 全域 QPS → 單 IP → 單用戶,任一超限即累加 {@code rate_limited} 指標並拋 {@link BizCode#RATE_LIMITED}
- * (由全域處理器回統一格式 HTTP 429)。以 {@code &&} 短路:前層已擋則不消耗後層 token。
+ * 領取 token 限流攔截器(掛在 /api/v1/seckill/token)。較寬鬆、<b>以 userId 為 key</b>:
+ * 保護 token 端點的 DB 查詢不被單一帳號狂刷。與 purchase 的三層限流分離——單用戶 2/s 專屬 purchase,
+ * 此處僅套用 {@code token-user-capacity}(預設 5/s)。以 userId 為 key 亦避免測試共用 localhost IP 互擾。
  */
 @Component
-public class SeckillRateLimitInterceptor implements HandlerInterceptor {
+public class SeckillTokenRateLimitInterceptor implements HandlerInterceptor {
 
     private final RateLimiterService rateLimiter;
     private final SeckillMetrics metrics;
 
-    public SeckillRateLimitInterceptor(RateLimiterService rateLimiter, SeckillMetrics metrics) {
+    public SeckillTokenRateLimitInterceptor(RateLimiterService rateLimiter, SeckillMetrics metrics) {
         this.rateLimiter = rateLimiter;
         this.metrics = metrics;
     }
@@ -27,10 +27,7 @@ public class SeckillRateLimitInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         Long userId = ClientRequestInfo.currentUserId();
-        boolean allowed = rateLimiter.tryGlobal()
-                && rateLimiter.tryIp(ClientRequestInfo.clientIp(request))
-                && (userId == null || rateLimiter.tryUser(userId));
-        if (!allowed) {
+        if (userId != null && !rateLimiter.tryTokenUser(userId)) {
             metrics.rateLimited();
             throw new BusinessException(BizCode.RATE_LIMITED);
         }

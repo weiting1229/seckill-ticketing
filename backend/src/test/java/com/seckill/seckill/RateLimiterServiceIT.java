@@ -48,6 +48,20 @@ class RateLimiterServiceIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void tokenUserAllowsFivePerSecondThenBlocks() {
+        long userA = SEQ.incrementAndGet();
+        long userB = SEQ.incrementAndGet();
+
+        for (int i = 0; i < 5; i++) {
+            assertThat(rateLimiter.tryTokenUser(userA)).as("領 token 第 %d 次應放行", i + 1).isTrue();
+        }
+        assertThat(rateLimiter.tryTokenUser(userA)).as("領 token 第 6 次應被限流").isFalse();
+
+        // 不同用戶各自獨立
+        assertThat(rateLimiter.tryTokenUser(userB)).isTrue();
+    }
+
+    @Test
     void ipAllowsTenPerSecondThenBlocks() {
         String ipA = "10.0.0." + SEQ.incrementAndGet();
         String ipB = "10.0.0." + SEQ.incrementAndGet();
