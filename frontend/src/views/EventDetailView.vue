@@ -3,11 +3,15 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getEvent } from '@/api/events'
+import { BizError } from '@/api/http'
 import type { EventDetail, TicketTypeView } from '@/api/types'
+import { useSeckillFlow } from '@/composables/useSeckillFlow'
+import { useAuthStore } from '@/stores/auth'
 import { formatDateTime, formatDuration } from '@/utils/datetime'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 
 const loading = ref(false)
 const notFound = ref(false)
@@ -91,9 +95,63 @@ function formatPrice(price: string | number): string {
   return `NT$ ${Number(price).toLocaleString()}`
 }
 
-function onBuy(t: TicketTypeView) {
-  // 搶購流程於 M5-4 接上(領 token → purchase → 輪詢結果)
-  ElMessage.info(`搶購流程尚未接上(票種:${t.name})`)
+// ---------- 搶購流程(領 token → purchase → 輪詢結果) ----------
+
+const { phase: buyPhase, buyingTicketTypeId, buy } = useSeckillFlow()
+
+async function onBuy(t: TicketTypeView) {
+  if (!auth.isLoggedIn) {
+    ElMessage.info('請先登入才能搶購')
+    router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+  try {
+    const outcome = await buy(t.id)
+    switch (outcome.status) {
+      case 'SUCCESS':
+        ElMessage.success('搶購成功!請於 15 分鐘內完成付款')
+        router.push(`/orders/${outcome.orderId}`)
+        break
+      case 'FAIL':
+        ElMessage.error(`搶購失敗:${outcome.reason}`)
+        load()
+        break
+      case 'TIMEOUT':
+        ElMessage.warning('仍在排隊處理中,請稍後至「我的訂單」確認結果')
+        break
+      case 'CANCELLED':
+        break
+    }
+  } catch (e) {
+    handleBuyError(e)
+  }
+}
+
+/** token / purchase 階段的業務錯誤客製提示(API 皆 silent)。 */
+function handleBuyError(e: unknown) {
+  if (!(e instanceof BizError)) {
+    ElMessage.error('網路異常,請稍後再試')
+    return
+  }
+  switch (e.code) {
+    case 3004: // 限流(429)
+      ElMessage.warning('請求過於頻繁,請稍候幾秒再試')
+      break
+    case 3005: // 售罄
+      ElMessage.error('此票種已售罄')
+      load()
+      break
+    case 3006: // 重複購買
+      ElMessage.info('您已購買過此票種(每人限購一張),可至「我的訂單」查看')
+      break
+    case 3007: // token 無效/已用
+      ElMessage.warning('搶購憑證已失效,請再點一次「立即搶購」')
+      break
+    default:
+      // 3001/3002/3003/3008/3009 等:顯示後端訊息並重載最新狀態
+      ElMessage.error(e.message)
+      load()
+  }
 }
 </script>
 
@@ -141,13 +199,30 @@ function onBuy(t: TicketTypeView) {
           <el-button
             type="danger"
             size="large"
-            :disabled="phaseOf(t) !== 'live' || t.remaining === 0"
+            :disabled="phaseOf(t) !== 'live' || t.remaining === 0 || buyingTicketTypeId !== null"
+            :loading="buyingTicketTypeId === t.id"
             @click="onBuy(t)"
           >
             {{ phaseOf(t) === 'live' && t.remaining === 0 ? '已售罄' : '立即搶購' }}
           </el-button>
         </div>
       </el-card>
+
+      <el-dialog
+        :model-value="buyPhase === 'queuing'"
+        title="排隊中"
+        width="320"
+        align-center
+        :close-on-click-modal="false"
+        :close-on-press-escape="false"
+        :show-close="false"
+      >
+        <div
+          v-loading="true"
+          element-loading-text="正在為你確認搶購結果…"
+          class="queue-dialog-body"
+        />
+      </el-dialog>
     </template>
   </div>
 </template>
@@ -215,5 +290,9 @@ function onBuy(t: TicketTypeView) {
 
 .countdown.live {
   color: var(--el-color-success);
+}
+
+.queue-dialog-body {
+  height: 90px;
 }
 </style>
