@@ -8,6 +8,7 @@ import type { EventDetail, TicketTypeView } from '@/api/types'
 import { useSeckillFlow } from '@/composables/useSeckillFlow'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime, formatDuration } from '@/utils/datetime'
+import { calibrate, serverNow } from '@/utils/serverClock'
 
 const route = useRoute()
 const router = useRouter()
@@ -18,12 +19,10 @@ const notFound = ref(false)
 const detail = ref<EventDetail | null>(null)
 
 /**
- * 倒數一律用「後端 server time 校準後的現在」:
- * offset = serverTime - 本機時間(每次載入詳情時重新校準),
- * now = 本機時間 + offset,避免使用者本機時鐘偏差。
+ * 倒數一律用「後端 server time 校準後的現在」(utils/serverClock):
+ * 每次載入詳情以 serverTime 重新校準,避免使用者本機時鐘偏差。
  */
-const serverOffset = ref(0)
-const now = ref(Date.now())
+const now = ref(serverNow())
 let timer: number | undefined
 
 async function load() {
@@ -31,8 +30,8 @@ async function load() {
   try {
     const res = await getEvent(String(route.params.id))
     detail.value = res
-    serverOffset.value = new Date(res.serverTime).getTime() - Date.now()
-    now.value = Date.now() + serverOffset.value
+    calibrate(res.serverTime)
+    now.value = serverNow()
     notFound.value = false
   } catch {
     // 2001 活動不存在(getEvent 為 silent,由本頁呈現空狀態)
@@ -45,7 +44,7 @@ async function load() {
 onMounted(() => {
   load()
   timer = window.setInterval(() => {
-    now.value = Date.now() + serverOffset.value
+    now.value = serverNow()
   }, 1000)
 })
 
