@@ -1,0 +1,14 @@
+# Grafana dashboard provider(M6)。自動從 /var/lib/grafana/dashboards 載入所有 JSON,
+# 對應 compose 掛載 ../grafana/dashboards 唯讀進容器。設計文件第 11 節四個 dashboard。
+apiVersion: 1
+
+providers:
+  - name: seckill-dashboards
+    orgId: 1
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false      # 以檔案為準,UI 改動不覆寫 repo
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
