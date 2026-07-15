@@ -69,6 +69,12 @@ management:
     web:
       exposure:
         include: health,prometheus   # 僅暴露 health 與 prometheus,且僅限 Docker 內網存取
+  metrics:
+    distribution:
+      # 為 HTTP 端點產生 histogram bucket,使 Prometheus 能算 API p99(設計文件第 11 節告警)。
+      # 預設 http.server.requests 只有 count/sum/max,無 bucket,無法 histogram_quantile。
+      percentiles-histogram:
+        http.server.requests: true
 
 server:
   port: 8080
