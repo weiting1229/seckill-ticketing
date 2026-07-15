@@ -1,0 +1,53 @@
+# Prometheus 抓取設定(M6 監控)。設計文件第 11 節為權威規格。
+# 抓取對象:
+#   - backend        : 業務指標(seckill_*)+ JVM(Micrometer 內建),/actuator/prometheus
+#   - rabbitmq       : 佇列積壓深度等(RabbitMQ prometheus plugin,原生提供,:15692)
+#   - node/postgres/redis exporter : 主機、PG、Redis 系統指標
+#
+# dev/prod scrape 目標差異(見 ADR 0007):
+#   backend 在 dev 跑於「本機主機」(非容器),在 prod 為 Docker 網路內的容器服務。
+#   本檔統一以 `backend:8080` 為目標,不分檔:
+#     - dev :docker-compose.monitoring.yml 給 prometheus 容器
+#            `extra_hosts: ["backend:host-gateway"]`,使 `backend` 解析到 Docker 主機 → 本機後端 :8080。
+#     - prod:與 backend 同一 compose 網路,Docker DNS 直接把 `backend` 解析到 backend 容器。
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# 告警規則(M6)。被動觀察模式:規則由 Prometheus 評估,狀態見 /alerts,不接主動通知平台。
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
+# 【刻意不設 Alertmanager】使用者決策:目前只做被動監控,不綁 Telegram/email。
+# 未來若要主動通知,取消下方註解並於 monitoring compose 加入 alertmanager 服務。
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ['alertmanager:9093']
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: backend
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['backend:8080']
+
+  - job_name: rabbitmq
+    # RabbitMQ prometheus plugin(enabled_plugins 已開);容器名 seckill-rabbitmq,plugin 埠 15692
+    static_configs:
+      - targets: ['seckill-rabbitmq:15692']
+
+  - job_name: node
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  - job_name: postgres
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  - job_name: redis
+    static_configs:
+      - targets: ['redis-exporter:9121']

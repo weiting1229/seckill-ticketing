@@ -1,0 +1,95 @@
+# Prometheus 告警規則(M6,設計文件第 11 節六類)。
+#
+# 【被動觀察模式】本專案目前不接任何主動通知平台(Telegram/email 皆略過,使用者決策)。
+# 這些規則由 Prometheus 定期評估,狀態(inactive / pending / firing)可在
+#   http://localhost:9090/alerts 直接觀察,壓測時即時看哪條閾值被觸發。
+# 未設定 Alertmanager;若日後要主動通知,再於 prometheus.yml 補 alerting: 區塊 + Alertmanager。
+#
+# 指標名與 queue 標籤皆對 live endpoint 驗證過。
+groups:
+  - name: seckill-queue
+    rules:
+      # 佇列積壓:只鎖定 work queue(排除 order.timeout.queue 的合法 15 分鐘支付 timer)
+      - alert: QueueBacklogWarning
+        expr: sum(rabbitmq_queue_messages_ready{queue="seckill.order.queue"}) > 10000
+        for: 30s
+        labels: { severity: warning }
+        annotations:
+          summary: "建單佇列積壓 > 10000(30s)"
+          description: "seckill.order.queue ready 訊息 {{ $value }} 筆,消費者可能跟不上生產速率。"
+      - alert: QueueBacklogCritical
+        expr: sum(rabbitmq_queue_messages_ready{queue="seckill.order.queue"}) > 50000
+        for: 60s
+        labels: { severity: critical }
+        annotations:
+          summary: "建單佇列積壓 > 50000(60s)"
+          description: "seckill.order.queue ready 訊息 {{ $value }} 筆,嚴重積壓,需擴充消費併發或排查落庫瓶頸。"
+
+  - name: seckill-consume
+    rules:
+      # DLQ 出現任何訊息:消費重試耗盡而死信,需人工介入(critical)
+      - alert: OrderDlqNotEmpty
+        expr: sum(rabbitmq_queue_messages{queue="seckill.order.dlq"}) > 0
+        for: 30s
+        labels: { severity: critical }
+        annotations:
+          summary: "訂單 DLQ 出現訊息"
+          description: "seckill.order.dlq 有 {{ $value }} 筆死信訊息,建單消費重試耗盡,需人工排查。"
+      # 消費失敗(nack→DLX 的 rejected 死信持續發生)。
+      # 註:設計原文為「消費失敗率 > 1%」,現有指標無乾淨分母,改以 rejected 死信速率 > 0 近似(見 runbook / ADR 0007)。
+      - alert: OrderConsumeFailing
+        expr: rate(rabbitmq_global_messages_dead_lettered_rejected_total[5m]) > 0
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: "訂單消費出現失敗(rejected 死信)"
+          description: "近 5 分鐘持續有 rejected 死信(建單消費失敗),速率 {{ $value | humanize }}/s。"
+
+  - name: seckill-business
+    rules:
+      # 庫存回補 5 分鐘增量 > 100(異常訊號:理想僅來自超時取消)
+      - alert: StockRevertSpike
+        expr: sum(increase(seckill_stock_revert_total[5m])) > 100
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: "庫存回補 5 分鐘增量 > 100"
+          description: "seckill_stock_revert_total 近 5 分鐘增加 {{ $value }},可能發生大量 MQ 發送失敗或 DB 售罄回補。"
+      # 搶購 API p99 延遲 > 500ms 持續 1 分鐘(需 http histogram,已於 application.yml 開啟)
+      - alert: ApiP99LatencyHigh
+        expr: histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{uri!~"/actuator.*"}[1m]))) > 0.5
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: "API p99 延遲 > 500ms(1m)"
+          description: "非 actuator 端點 p99 = {{ $value | humanizeDuration }},超過 500ms。"
+
+  - name: seckill-infra
+    rules:
+      # 主機 CPU > 85% 持續 5 分鐘
+      - alert: HostCpuHigh
+        expr: 100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "主機 CPU > 85%(5m)"
+          description: "CPU 使用率 {{ $value | humanize }}%,持續 5 分鐘。"
+      # PostgreSQL 連線數 > 上限 80%
+      - alert: PgConnectionsHigh
+        expr: 100 * sum(pg_stat_activity_count) / max(pg_settings_max_connections) > 80
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: "PG 連線使用率 > 80%"
+          description: "PostgreSQL 連線使用率 {{ $value | humanize }}%(上限 {{ with query \"max(pg_settings_max_connections)\" }}{{ . | first | value }}{{ end }})。"
+
+  - name: seckill-availability
+    rules:
+      # 任一抓取目標 up==0 持續 30 秒
+      - alert: TargetDown
+        expr: up == 0
+        for: 30s
+        labels: { severity: critical }
+        annotations:
+          summary: "抓取目標離線:{{ $labels.job }}"
+          description: "target job={{ $labels.job }} instance={{ $labels.instance }} 已 up==0 超過 30 秒。"

@@ -49,6 +49,8 @@ services:
       - rabbitmq-data:/var/lib/rabbitmq
       # 啟用 management + prometheus plugin
       - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      # M6:開 per-queue prometheus 指標(backlog 告警排除延遲佇列、DLQ 單獨偵測)
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s

@@ -1,0 +1,92 @@
+# 本機監控 stack(M6):Prometheus + exporters(Grafana / Alertmanager 於後續子項補入本檔)。
+# 與 infra/docker-compose.dev.yml 的中介軟體共用同一 docker network(seckill-dev_default),
+# 使 exporter 能以容器名連 PG / Redis / RabbitMQ;backend 跑在本機主機,經 host-gateway 抓取。
+#
+# 使用方式(於 repo 根目錄,務必帶 --env-file .env):
+#   1) 先起 dev 中介軟體(會建立 seckill-dev_default 網路):
+#      docker compose --env-file .env -f infra/docker-compose.dev.yml up -d
+#   2) 再起監控 stack:
+#      docker compose --env-file .env -f infra/docker-compose.monitoring.yml up -d
+#
+# 版本一律 pin(比照 ADR 0001);資料走 named volume 持久化。
+# prod 全服務組裝(caddy/frontend/backend + 全套監控)屬 M7,見 docker-compose.prod.yml。
+name: seckill-monitoring
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: seckill-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle   # 允許 POST /-/reload 熱載入設定(改 rules 免重啟)
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - prometheus-data:/prometheus
+    extra_hosts:
+      # dev:讓 `backend` 解析到 Docker 主機(本機後端 :8080);prod 由網路 DNS 解析到 backend 容器
+      - "backend:host-gateway"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: seckill-grafana
+    environment:
+      # admin 密碼走 env(勿硬編碼);.env 填值、repo 只放 .env.example 佔位
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?請在 .env 設定 GRAFANA_ADMIN_PASSWORD}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # dev 免登入直接看板(僅本機 127.0.0.1 綁定);prod 不開匿名,見 M7
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: seckill-node-exporter
+    command:
+      - --path.rootfs=/host
+    volumes:
+      # dev(Docker Desktop):唯讀掛載 / 即可取得主機/VM 指標;
+      # prod(Linux 主機)在 M7 的 prod compose 再加 pid:host 與 rslave 傳播取得完整主機視角。
+      - /:/host:ro
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: seckill-postgres-exporter
+    environment:
+      # 連線密碼走 env(勿硬編碼);沿用 dev 中介軟體的 PG 帳密
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@seckill-postgres:5432/${POSTGRES_DB}?sslmode=disable"
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: seckill-redis-exporter
+    environment:
+      REDIS_ADDR: "redis://seckill-redis:6379"
+      # dev Redis 無密碼;prod 由 REDIS_PASSWORD 注入(未設則空)
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  # 掛到 dev 中介軟體所建立的網路,讓 exporter 以容器名直連 PG/Redis/RabbitMQ
+  default:
+    name: seckill-dev_default
+    external: true
