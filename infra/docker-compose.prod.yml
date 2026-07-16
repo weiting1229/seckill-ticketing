@@ -1,0 +1,249 @@
+# 正式環境(OCI Ampere A1,linux/arm64)全服務組裝 — M7。
+#
+# 服務清單 = 設計文件第 12 節原清單「減去 alertmanager」(使用者決策:只做被動觀察,
+# 不接任何主動通知平台;見 ADR 0007 §5)。
+#
+# 對外只有 caddy 開 80/443;backend 與所有中介軟體都不對外開 port,只在 Docker
+# 內網被 Caddy / Prometheus 存取(設計第 10.4 節)。Prometheus 與 Grafana 只綁
+# 127.0.0.1,需經 SSH tunnel 觀察(見下方 grafana 註解)。
+#
+# 使用方式(於主機 /opt/seckill,.env 由 cd.yml 依 GitHub Secrets 產生):
+#   docker compose --env-file .env -f docker-compose.prod.yml pull
+#   docker compose --env-file .env -f docker-compose.prod.yml up -d
+#
+# 映像版本一律 pin(比照 ADR 0001 / 0007);自家映像以 IMAGE_TAG 指定(cd.yml 帶 git SHA,
+# 使每次部署可精確對應到一個 commit,並可回滾)。
+name: seckill-prod
+
+services:
+  # ==========================================================================
+  # 對外入口:唯一開 port 的服務
+  # ==========================================================================
+  caddy:
+    image: caddy:2.9-alpine
+    container_name: seckill-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    environment:
+      # 站台網域與 ACME 註冊信箱(DuckDNS 等免費網域亦可);見 infra/caddy/Caddyfile
+      SITE_ADDRESS: ${SITE_ADDRESS:?請設定 SITE_ADDRESS(例:seckill.duckdns.org)}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data       # Let's Encrypt 憑證與帳戶金鑰,務必持久化(否則重啟會重新簽發、撞速率限制)
+      - caddy-config:/config
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+  # ==========================================================================
+  # 應用
+  # ==========================================================================
+  frontend:
+    image: ghcr.io/weiting1229/seckill-ticketing/frontend:${IMAGE_TAG:-latest}
+    container_name: seckill-frontend
+    # 不開 port:只由 caddy 經內網存取
+    restart: unless-stopped
+
+  backend:
+    image: ghcr.io/weiting1229/seckill-ticketing/backend:${IMAGE_TAG:-latest}
+    container_name: seckill-backend
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      # --- 資料層(容器間以服務名互連)---
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:?請設定 POSTGRES_DB}
+      DB_USERNAME: ${POSTGRES_USER:?請設定 POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?請設定 POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?請設定 REDIS_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: ${RABBITMQ_USER:?請設定 RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?請設定 RABBITMQ_PASSWORD}
+      # --- 認證與 CORS ---
+      JWT_SECRET: ${JWT_SECRET:?請設定 JWT_SECRET(至少 256 bit)}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://${SITE_ADDRESS}}
+      # --- Snowflake(單機 MVP 固定 0)---
+      WORKER_ID: "0"
+      DATACENTER_ID: "0"
+      # --- ADMIN 種子帳號(兩者皆設才建立;不設則略過)---
+      SECKILL_ADMIN_USERNAME: ${SECKILL_ADMIN_USERNAME:-}
+      SECKILL_ADMIN_PASSWORD: ${SECKILL_ADMIN_PASSWORD:-}
+      # --- 限流閾值(設計初值見 application.yml,壓測後校準;M7 壓測時可經 .env 覆寫)---
+      SECKILL_RL_GLOBAL: ${SECKILL_RL_GLOBAL:-3000}
+      SECKILL_RL_USER: ${SECKILL_RL_USER:-2}
+      SECKILL_RL_IP: ${SECKILL_RL_IP:-10}
+      SECKILL_RL_TOKEN_USER: ${SECKILL_RL_TOKEN_USER:-5}
+    # 不開 port:/api 由 caddy 反代,/actuator 只給內網的 prometheus(設計第 10.7 節)
+    healthcheck:
+      # 執行層 eclipse-temurin:25-jre 沒有 curl/wget/nc,只有 bash。刻意不為了 healthcheck
+      # 多裝套件(會擴大 Trivy 掃描面,而 cd.yml 規定 HIGH/CRITICAL 即失敗),
+      # 改用 bash 內建的 /dev/tcp 直接發一個 HTTP 請求並確認 actuator 回報 UP。
+      # 必須是 ["CMD", "bash", ...] 而非 CMD-SHELL:CMD-SHELL 走 /bin/sh(dash),
+      # 而 /dev/tcp 是 bash 專屬功能,用 sh 會失敗(cannot create /dev/tcp/...)。
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /actuator/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && grep -q '"status":"UP"' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ==========================================================================
+  # 中介軟體(皆不對外開 port)
+  # ==========================================================================
+  postgres:
+    image: postgres:17
+    container_name: seckill-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?請設定 POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?請設定 POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?請設定 POSTGRES_PASSWORD}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    container_name: seckill-redis
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?請設定 REDIS_PASSWORD}
+    # dev 的 Redis 無密碼;prod 一律 requirepass(backend 與 redis-exporter 都帶密碼連線)
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: seckill-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?請設定 RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?請設定 RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      # per-queue prometheus 指標:backlog 告警才能只鎖 seckill.order.queue,
+      # 不被 order.timeout.queue 合法的 15 分鐘 timer 誤觸(ADR 0007 §4)
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ==========================================================================
+  # 監控(沿用 M6 設定檔,見 ADR 0007;刻意不含 alertmanager)
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: seckill-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    ports:
+      - "127.0.0.1:9090:9090"   # 只綁 loopback:經 SSH tunnel 看 /alerts,不對網際網路暴露
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - prometheus-data:/prometheus
+    # 【刻意不設 extra_hosts】dev 需要 backend:host-gateway 指向本機後端;
+    # prod 的 backend 就在同一 compose 網路,Docker DNS 直接解析(ADR 0007 §2),
+    # prometheus.yml 因此兩環境共用同一份、零差異。
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: seckill-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?請設定 GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # prod 不開匿名(dev 才開;ADR 0007 §8)——一律登入
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      # 只綁 loopback。要看板請從本機開 SSH tunnel:
+      #   ssh -L 3000:localhost:3000 -L 9090:localhost:9090 <user>@<host>
+      # 然後瀏覽 http://localhost:3000(Grafana)與 http://localhost:9090/alerts(Prometheus)
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # exporter 的服務名必須與 prometheus.yml 的 scrape targets 一致,勿更名
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: seckill-node-exporter
+    command:
+      - --path.rootfs=/host
+    # prod 是真 Linux 主機,補上 pid: host 與 rslave 傳播取得完整主機視角;
+    # dev 因 Docker Desktop 不支援 rslave 而簡化(ADR 0007 §3)。
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: seckill-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: seckill-redis-exporter
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+      # dev Redis 無密碼;prod 一律帶密碼,否則 exporter 會 NOAUTH 抓不到指標
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?請設定 REDIS_PASSWORD}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pg-data:
+  redis-data:
+  rabbitmq-data:
+  prometheus-data:
+  grafana-data:
+  caddy-data:
+  caddy-config:
