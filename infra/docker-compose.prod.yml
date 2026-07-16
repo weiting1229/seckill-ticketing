@@ -29,7 +29,9 @@ services:
     environment:
       # 站台網域與 ACME 註冊信箱(DuckDNS 等免費網域亦可);見 infra/caddy/Caddyfile
       SITE_ADDRESS: ${SITE_ADDRESS:?請設定 SITE_ADDRESS(例:seckill.duckdns.org)}
-      ACME_EMAIL: ${ACME_EMAIL:-}
+      # 必填:Caddyfile 的 `email` 指令留空會直接解析失敗(wrong argument count),
+      # 且 Let's Encrypt 靠它在憑證續期失敗時通知你。
+      ACME_EMAIL: ${ACME_EMAIL:?請設定 ACME_EMAIL(Let's Encrypt 註冊信箱)}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data       # Let's Encrypt 憑證與帳戶金鑰,務必持久化(否則重啟會重新簽發、撞速率限制)
