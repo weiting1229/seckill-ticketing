@@ -1,0 +1,15 @@
+# 建置產物:一律在映像內重新建置,避免把本機 x86 的產物帶進 arm64 映像
+target/
+
+# 祕密絕不進 build context(即使沒被 COPY,也會被送進 daemon)
+.env
+.env.*
+*.pem
+*.key
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
