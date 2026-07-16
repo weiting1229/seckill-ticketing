@@ -54,8 +54,12 @@ class JwtServiceTest {
     void tamperedTokenShouldFailVerification() {
         JwtService jwt = service(Duration.ofMinutes(15), Duration.ofDays(7));
         String token = jwt.generateAccessToken(sampleUser());
-        String tampered = token.substring(0, token.length() - 1)
-                + (token.endsWith("a") ? "b" : "a");
+        // 竄改簽章「第一個」字元:其編碼簽章位元組第 0 byte 的高位,必定改變簽章位元組。
+        // (竄改最後一字元可能因該字元僅含 2 個有效位元而使解碼後的簽章位元組不變,導致偶發放行。)
+        int sigStart = token.lastIndexOf('.') + 1;
+        char c = token.charAt(sigStart);
+        char replacement = (c == 'A') ? 'B' : 'A';
+        String tampered = token.substring(0, sigStart) + replacement + token.substring(sigStart + 1);
 
         assertThatThrownBy(() -> jwt.parse(tampered)).isInstanceOf(JwtException.class);
     }
