@@ -30,6 +30,13 @@ RUN pnpm build-only
 # ============================================================================
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 
+# 基底 Alpine 快照的 OS 套件(openssl/c-ares/expat 等)帶有已修補的 HIGH/CRITICAL CVE。
+# 於建置時升級到 Alpine 安全分支最新修補版,從源頭清除(非 .trivyignore 掩蓋)。
+# apk 需 root,升級後切回非 root 的 nginx(uid 101)以維持「容器內非 root」。詳見 ADR 0008。
+USER root
+RUN apk upgrade --no-cache
+USER nginx
+
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /build/dist /usr/share/nginx/html
 

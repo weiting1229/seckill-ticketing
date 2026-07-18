@@ -28,8 +28,13 @@ FROM eclipse-temurin:25-jre
 
 WORKDIR /app
 
+# 移除基底映像內建、我們用不到的 Canonical Pebble 服務管理器(/usr/bin/pebble)。
+# 它是以較舊 Go 編譯的 ~10MB 執行檔,帶有 golang.org/x/net 與 stdlib 的 HIGH 級 CVE
+# (已有修補、故 Trivy ignore-unfixed 仍會擋);我們的 ENTRYPOINT 是 java -jar,
+# 不經 pebble,直接刪除即從源頭消除該漏洞(基底無此檔時 rm -f 亦為 no-op)。詳見 ADR 0008。
 # 非 root 執行(CLAUDE.md 安全規範、設計第 10.6 節)
-RUN groupadd --system --gid 1001 app \
+RUN rm -f /usr/bin/pebble \
+ && groupadd --system --gid 1001 app \
  && useradd --system --uid 1001 --gid app --home-dir /app --shell /usr/sbin/nologin app
 
 COPY --from=build --chown=app:app /build/target/*.jar /app/app.jar
