@@ -104,6 +104,7 @@ jobs:
       # (首次部署即中此坑);Docker 映像法穩定且與本機驗證一致。
       # ignore-unfixed=true:只擋「有修補可用」的漏洞(無官方修補的 CVE 擋了也無從修)。
       # --scanners vuln:僅掃漏洞(關閉 secret 掃描,加速並避免誤報)。取捨見 ADR 0008。
+      # --platform linux/arm64:映像是 arm64-only,runner 為 amd64,不指定會找不到 amd64 子映像。
       # TRIVY_USERNAME/PASSWORD:供 trivy 認證 ghcr.io 拉取私有映像與漏洞 DB。
       - name: Trivy 掃描 backend
         env:
@@ -112,7 +113,7 @@ jobs:
         run: |
           docker run --rm -e TRIVY_USERNAME -e TRIVY_PASSWORD \
             -v "$HOME/.cache/trivy:/root/.cache/trivy" \
-            aquasec/trivy:0.65.0 image \
+            aquasec/trivy:0.65.0 image --platform linux/arm64 \
             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
             --scanners vuln --skip-version-check \
             "${{ env.IMAGE_PREFIX }}/backend:${{ steps.vars.outputs.sha }}"
@@ -124,7 +125,7 @@ jobs:
         run: |
           docker run --rm -e TRIVY_USERNAME -e TRIVY_PASSWORD \
             -v "$HOME/.cache/trivy:/root/.cache/trivy" \
-            aquasec/trivy:0.65.0 image \
+            aquasec/trivy:0.65.0 image --platform linux/arm64 \
             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
             --scanners vuln --skip-version-check \
             "${{ env.IMAGE_PREFIX }}/frontend:${{ steps.vars.outputs.sha }}"
