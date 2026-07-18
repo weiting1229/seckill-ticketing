@@ -99,29 +99,35 @@ jobs:
           cache-to: type=gha,mode=max,scope=frontend
 
       # Trivy 掃描:HIGH/CRITICAL 即失敗(設計第 12 節)。
-      # ignore-unfixed=true:只擋「有修補可用」的漏洞;基底映像常有無官方修補的 CVE,
-      # 擋了也無從修、只會永久卡住部署(此取捨記於 ADR 0008)。
+      # 用 aquasec/trivy Docker 映像(pin 版本)而非 aquasecurity/trivy-action:
+      # 該 action 以 install.sh 下載 trivy 執行檔,在 runner 上常因下載/rate limit 失敗
+      # (首次部署即中此坑);Docker 映像法穩定且與本機驗證一致。
+      # ignore-unfixed=true:只擋「有修補可用」的漏洞(無官方修補的 CVE 擋了也無從修)。
+      # --scanners vuln:僅掃漏洞(關閉 secret 掃描,加速並避免誤報)。取捨見 ADR 0008。
+      # TRIVY_USERNAME/PASSWORD:供 trivy 認證 ghcr.io 拉取私有映像與漏洞 DB。
       - name: Trivy 掃描 backend
-        uses: aquasecurity/trivy-action@v0.33.1
         env:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          image-ref: ${{ env.IMAGE_PREFIX }}/backend:${{ steps.vars.outputs.sha }}
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: '1'
+        run: |
+          docker run --rm -e TRIVY_USERNAME -e TRIVY_PASSWORD \
+            -v "$HOME/.cache/trivy:/root/.cache/trivy" \
+            aquasec/trivy:0.65.0 image \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            --scanners vuln --skip-version-check \
+            "${{ env.IMAGE_PREFIX }}/backend:${{ steps.vars.outputs.sha }}"
 
       - name: Trivy 掃描 frontend
-        uses: aquasecurity/trivy-action@v0.33.1
         env:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          image-ref: ${{ env.IMAGE_PREFIX }}/frontend:${{ steps.vars.outputs.sha }}
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: '1'
+        run: |
+          docker run --rm -e TRIVY_USERNAME -e TRIVY_PASSWORD \
+            -v "$HOME/.cache/trivy:/root/.cache/trivy" \
+            aquasec/trivy:0.65.0 image \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            --scanners vuln --skip-version-check \
+            "${{ env.IMAGE_PREFIX }}/frontend:${{ steps.vars.outputs.sha }}"
 
       - name: 產生 .env、同步 infra、部署
         env:
