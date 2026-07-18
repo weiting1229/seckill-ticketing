@@ -1,0 +1,231 @@
+# ============================================================================
+# CD — main 的 CI 通過後,建置 arm64 映像 → 推 GHCR → Trivy 掃描 → SSH 部署 OCI
+#
+# 觸發:CI(ci.yml,名稱 "CI")於 main 成功完成後(workflow_run)。
+#       亦提供 workflow_dispatch 供手動重新部署(Actions 頁按鈕)。
+#
+# 【設計文件第 12 節第 5 步「推 Telegram 通知」刻意略過】(使用者決策:只被動觀察,
+#  部署成功/失敗看本頁即可)。
+#
+# ---------------------------------------------------------------------------
+# 需要的 GitHub Secrets:
+#   部署連線(必填):OCI_PUBLIC_IP、OCI_SSH_USER、OCI_SSH_KEY(SSH 私鑰全文)
+#   prod 祕密(必填):POSTGRES_PASSWORD、REDIS_PASSWORD、RABBITMQ_PASSWORD、
+#                     JWT_SECRET、GRAFANA_ADMIN_PASSWORD、SITE_ADDRESS、ACME_EMAIL
+#   選填(未設則用預設):POSTGRES_DB/POSTGRES_USER/RABBITMQ_USER(預設 seckill)、
+#                     GRAFANA_ADMIN_USER(預設 admin)、SECKILL_ADMIN_USERNAME/PASSWORD(種子帳號)
+#   GHCR 推送 / 主機拉取:內建 GITHUB_TOKEN(下方 permissions 給 packages: write)
+#
+# 前置條件:setup-server.sh 已在主機跑過(Docker、防火牆、/opt/seckill 就緒);
+#          SITE_ADDRESS(DuckDNS 等)的 A record 已指向 OCI_PUBLIC_IP(Caddy 簽發
+#          Let's Encrypt 憑證與對外 HTTPS 需要;未指向則內網可用、對外 HTTPS 尚不可)。
+# ============================================================================
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: {}
+
+# 同時間只跑一次部署,避免兩個 workflow 同時 compose up 打架
+concurrency:
+  group: cd-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write   # 推送映像到 GHCR(write 亦含 read)
+
+env:
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}   # ghcr.io/weiting1229/seckill-ticketing
+
+jobs:
+  deploy:
+    name: Build → Scan → Deploy(linux/arm64 → GHCR → OCI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # 僅在 CI 於 main 成功時,或手動觸發時才部署
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: 解析要部署的 commit
+        id: vars
+        run: |
+          SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "將部署 commit：$SHA"
+
+      # 取出 CI 通過的那個 commit(workflow_run 事件下 github.sha 指向 main HEAD,
+      # 未必等於觸發 CI 的 commit,故顯式 checkout head_sha)
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.vars.outputs.sha }}
+
+      - uses: docker/setup-qemu-action@v3      # 供 arm64 執行層在 amd64 runner 上模擬
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 登入 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 建置階段標 --platform=$BUILDPLATFORM(見 Dockerfile),Maven/pnpm 跑在 runner
+      # 原生 amd64,只有執行層是 arm64,QEMU 開銷極小。tag = git SHA + latest。
+      - name: 建置並推送 backend(linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/backend:${{ steps.vars.outputs.sha }}
+            ${{ env.IMAGE_PREFIX }}/backend:latest
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: 建置並推送 frontend(linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/frontend:${{ steps.vars.outputs.sha }}
+            ${{ env.IMAGE_PREFIX }}/frontend:latest
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      # Trivy 掃描:HIGH/CRITICAL 即失敗(設計第 12 節)。
+      # ignore-unfixed=true:只擋「有修補可用」的漏洞;基底映像常有無官方修補的 CVE,
+      # 擋了也無從修、只會永久卡住部署(此取捨記於 ADR 0008)。
+      - name: Trivy 掃描 backend
+        uses: aquasecurity/trivy-action@0.28.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image-ref: ${{ env.IMAGE_PREFIX }}/backend:${{ steps.vars.outputs.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          vuln-type: os,library
+
+      - name: Trivy 掃描 frontend
+        uses: aquasecurity/trivy-action@0.28.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image-ref: ${{ env.IMAGE_PREFIX }}/frontend:${{ steps.vars.outputs.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          vuln-type: os,library
+
+      - name: 產生 .env、同步 infra、部署
+        env:
+          OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
+          SSH_HOST: ${{ secrets.OCI_PUBLIC_IP }}
+          SSH_USER: ${{ secrets.OCI_SSH_USER }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ steps.vars.outputs.sha }}
+          # prod 祕密(值以 env 傳入,再用 printf %s 逐行寫檔,不受 shell 展開影響)
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB || 'seckill' }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER || 'seckill' }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          RABBITMQ_USER: ${{ secrets.RABBITMQ_USER || 'seckill' }}
+          RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          GRAFANA_ADMIN_USER: ${{ secrets.GRAFANA_ADMIN_USER || 'admin' }}
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          SITE_ADDRESS: ${{ secrets.SITE_ADDRESS }}
+          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+          SECKILL_ADMIN_USERNAME: ${{ secrets.SECKILL_ADMIN_USERNAME }}
+          SECKILL_ADMIN_PASSWORD: ${{ secrets.SECKILL_ADMIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$OCI_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          SSH="ssh -i $HOME/.ssh/id_deploy -o StrictHostKeyChecking=accept-new"
+          HOST="$SSH_USER@$SSH_HOST"
+
+          # 產生 prod .env(printf %s 逐行寫,值來自 env,含特殊字元亦安全)
+          {
+            printf 'POSTGRES_DB=%s\n'          "$POSTGRES_DB"
+            printf 'POSTGRES_USER=%s\n'        "$POSTGRES_USER"
+            printf 'POSTGRES_PASSWORD=%s\n'    "$POSTGRES_PASSWORD"
+            printf 'REDIS_PASSWORD=%s\n'       "$REDIS_PASSWORD"
+            printf 'RABBITMQ_USER=%s\n'        "$RABBITMQ_USER"
+            printf 'RABBITMQ_PASSWORD=%s\n'    "$RABBITMQ_PASSWORD"
+            printf 'JWT_SECRET=%s\n'           "$JWT_SECRET"
+            printf 'GRAFANA_ADMIN_USER=%s\n'   "$GRAFANA_ADMIN_USER"
+            printf 'GRAFANA_ADMIN_PASSWORD=%s\n' "$GRAFANA_ADMIN_PASSWORD"
+            printf 'SITE_ADDRESS=%s\n'         "$SITE_ADDRESS"
+            printf 'ACME_EMAIL=%s\n'           "$ACME_EMAIL"
+            printf 'SECKILL_ADMIN_USERNAME=%s\n' "${SECKILL_ADMIN_USERNAME:-}"
+            printf 'SECKILL_ADMIN_PASSWORD=%s\n' "${SECKILL_ADMIN_PASSWORD:-}"
+            printf 'IMAGE_TAG=%s\n'            "$IMAGE_TAG"
+          } > prod.env
+
+          # 同步 infra/ 到 /opt/seckill(tar 串流過 SSH,兩端都有 tar、免裝 rsync)
+          $SSH "$HOST" 'mkdir -p /opt/seckill/backups'
+          tar czf - -C infra . | $SSH "$HOST" 'tar xzf - -C /opt/seckill'
+          # 寫入 .env(600 權限);不經 log
+          $SSH "$HOST" 'cat > /opt/seckill/.env && chmod 600 /opt/seckill/.env' < prod.env
+          rm -f prod.env
+
+          # 主機登入 GHCR(映像為私有),拉取並啟動
+          printf '%s' "$GHCR_TOKEN" | $SSH "$HOST" "docker login ghcr.io -u '$GHCR_USER' --password-stdin"
+          $SSH "$HOST" 'cd /opt/seckill && docker compose --env-file .env -f docker-compose.prod.yml pull'
+          $SSH "$HOST" 'cd /opt/seckill && docker compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans'
+          # 清掉被新版取代的舊映像,避免磁碟隨部署累積
+          $SSH "$HOST" 'docker image prune -f'
+
+      # Smoke test(設計第 12 節第 4 步):內網 /actuator/health 與前端首頁,非 200 即失敗
+      - name: Smoke test
+        env:
+          SSH_HOST: ${{ secrets.OCI_PUBLIC_IP }}
+          SSH_USER: ${{ secrets.OCI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/id_deploy -o StrictHostKeyChecking=accept-new"
+          HOST="$SSH_USER@$SSH_HOST"
+          # 1) backend:等 healthcheck(內網戳 /actuator/health 驗 UP)轉 healthy
+          #    單引號內的 $s/$i/$(...) 刻意留給遠端主機展開,非本機:
+          # shellcheck disable=SC2016
+          $SSH "$HOST" '
+            for i in $(seq 1 40); do
+              s=$(docker inspect -f "{{.State.Health.Status}}" seckill-backend 2>/dev/null || echo missing)
+              echo "backend health: $s ($((i*5))s)"
+              [ "$s" = healthy ] && exit 0
+              [ "$s" = missing ] && { echo "backend 容器不存在"; docker ps -a; exit 1; }
+              sleep 5
+            done
+            echo "backend 逾時未 healthy"; docker logs --tail 80 seckill-backend; exit 1
+          '
+          # 2) frontend 首頁:由 caddy 容器走內網抓 http://frontend:8080/,非 200(wget 非零)即失敗
+          $SSH "$HOST" 'docker exec seckill-caddy wget -q -O /dev/null http://frontend:8080/ && echo "前端首頁 200 OK"'
+
+      # 對外 HTTPS 檢查(非阻斷):首次部署憑證簽發或 DNS 未指向時可能尚未就緒,僅供觀察
+      - name: 對外 HTTPS 觀察(非阻斷)
+        continue-on-error: true
+        env:
+          SITE_ADDRESS: ${{ secrets.SITE_ADDRESS }}
+        run: |
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "https://${SITE_ADDRESS}/" || echo 000)
+            echo "嘗試 $i/12：https://${SITE_ADDRESS}/ → $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "對外 HTTPS 尚未就緒(可能憑證簽發中或 DNS 未指向主機);內網 smoke test 已通過,不阻斷。"
+
+      - name: 清理 SSH 金鑰
+        if: always()
+        run: rm -f ~/.ssh/id_deploy
