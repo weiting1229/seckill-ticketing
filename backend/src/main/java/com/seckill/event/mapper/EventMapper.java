@@ -18,10 +18,11 @@ public interface EventMapper {
 
     int deleteById(@Param("id") long id);
 
-    // --- 公開:僅 PUBLISHED,依演出時間排序,分頁 ---
-    List<Event> findPublishedPage(@Param("limit") int limit, @Param("offset") int offset);
+    // --- 公開:僅 PUBLISHED,依演出時間排序,分頁;keyword 為選配(title ILIKE) ---
+    List<Event> findPublishedPage(
+            @Param("limit") int limit, @Param("offset") int offset, @Param("keyword") String keyword);
 
-    long countPublished();
+    long countPublished(@Param("keyword") String keyword);
 
     // --- admin:全部狀態,依建立時間新到舊,分頁 ---
     List<Event> findPage(@Param("limit") int limit, @Param("offset") int offset);

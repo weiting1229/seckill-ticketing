@@ -28,8 +28,9 @@ public class EventController {
     @GetMapping
     public ApiResponse<PageResponse<EventSummaryResponse>> list(
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "10") int size) {
-        return ApiResponse.ok(eventService.listPublished(page, size));
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String keyword) {
+        return ApiResponse.ok(eventService.listPublished(page, size, keyword));
     }
 
     @GetMapping("/{id}")

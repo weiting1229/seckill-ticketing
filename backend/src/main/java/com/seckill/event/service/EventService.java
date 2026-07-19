@@ -109,11 +109,12 @@ public class EventService {
 
     // ---- 公開 ----
 
-    public PageResponse<EventSummaryResponse> listPublished(int page, int size) {
+    public PageResponse<EventSummaryResponse> listPublished(int page, int size, String keyword) {
         int p = normalizePage(page);
         int s = normalizeSize(size);
-        long total = eventMapper.countPublished();
-        List<EventSummaryResponse> items = eventMapper.findPublishedPage(s, (p - 1) * s).stream()
+        String kw = blankToNull(keyword);
+        long total = eventMapper.countPublished(kw);
+        List<EventSummaryResponse> items = eventMapper.findPublishedPage(s, (p - 1) * s, kw).stream()
                 .map(EventSummaryResponse::from)
                 .toList();
         return PageResponse.of(p, s, total, items);

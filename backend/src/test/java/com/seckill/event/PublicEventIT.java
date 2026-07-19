@@ -153,6 +153,39 @@ class PublicEventIT extends AbstractAdminIntegrationTest {
     }
 
     @Test
+    void listFiltersByKeywordAndPaginatesFilteredResult() {
+        String admin = createAdminToken();
+        // 唯一 ASCII 前綴,避免與其他測試資料干擾、也避開查詢字串編碼問題
+        String tag = "kw" + System.nanoTime();
+        String a1 = createEvent(admin, tag + "MAYDAY");
+        publish(admin, a1, tag + "MAYDAY");
+        String a2 = createEvent(admin, tag + "MAYDAYENCORE");
+        publish(admin, a2, tag + "MAYDAYENCORE");
+        String b = createEvent(admin, tag + "GAOWUREN");
+        publish(admin, b, tag + "GAOWUREN");
+
+        // keyword 用小寫,驗證 ILIKE 大小寫不敏感;子字串命中 a1、a2 不含 b
+        String kw = tag + "mayday";
+        JsonNode data = json(get("/api/v1/events?page=1&size=50&keyword=" + kw, null)).path("data");
+        assertThat(data.path("total").asLong()).isEqualTo(2);
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        for (JsonNode it : data.path("items")) {
+            ids.add(it.path("id").asText());
+        }
+        assertThat(ids).containsExactlyInAnyOrder(a1, a2);
+        assertThat(ids).doesNotContain(b);
+
+        // 過濾後分頁:size=1 → 每頁一筆、total 仍為 2
+        JsonNode paged = json(get("/api/v1/events?page=1&size=1&keyword=" + kw, null)).path("data");
+        assertThat(paged.path("items").size()).isEqualTo(1);
+        assertThat(paged.path("total").asLong()).isEqualTo(2);
+
+        // 空 keyword 視為不過濾(不因空字串回零筆)
+        JsonNode noKw = json(get("/api/v1/events?page=1&size=50&keyword=", null)).path("data");
+        assertThat(noKw.path("total").asLong()).isGreaterThanOrEqualTo(3);
+    }
+
+    @Test
     void listRespectsPageSize() {
         String admin = createAdminToken();
         // 確保至少有兩筆已發布

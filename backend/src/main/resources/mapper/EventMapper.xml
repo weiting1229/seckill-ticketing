@@ -33,16 +33,25 @@
         DELETE FROM events WHERE id = #{id}
     </delete>
 
+    <!-- keyword 為選配的標題模糊搜尋;以 #{} 綁定,ILIKE pattern 於 SQL 內串接,禁用 ${} -->
+    <sql id="publishedFilter">
+        WHERE status = 'PUBLISHED'
+        <if test="keyword != null and keyword != ''">
+            AND title ILIKE ('%' || #{keyword} || '%')
+        </if>
+    </sql>
+
     <select id="findPublishedPage" resultType="com.seckill.event.domain.Event">
         SELECT <include refid="cols"/>
         FROM events
-        WHERE status = 'PUBLISHED'
+        <include refid="publishedFilter"/>
         ORDER BY event_time ASC, id ASC
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
     <select id="countPublished" resultType="long">
-        SELECT COUNT(*) FROM events WHERE status = 'PUBLISHED'
+        SELECT COUNT(*) FROM events
+        <include refid="publishedFilter"/>
     </select>
 
     <select id="findPage" resultType="com.seckill.event.domain.Event">
