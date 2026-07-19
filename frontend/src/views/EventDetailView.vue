@@ -13,6 +13,7 @@ import { availabilityOf } from '@/utils/ticketDisplay'
 import GenerativePoster from '@/components/GenerativePoster.vue'
 import CountdownBoard from '@/components/CountdownBoard.vue'
 import TicketTypeCard from '@/components/TicketTypeCard.vue'
+import WaitingRoom, { type WaitingResult } from '@/components/WaitingRoom.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -140,7 +141,19 @@ const showCover = computed(() => hasCover.value && !coverFailed.value)
 
 // ---------- 搶購流程(領 token → purchase → 輪詢結果) ----------
 
-const { phase: buyPhase, buyingTicketTypeId, buy } = useSeckillFlow()
+const { phase: buyPhase, buyingTicketTypeId, buy, queueStartedAt } = useSeckillFlow()
+
+/** 搶購結果卡(非成功情境);成功直接導向訂單頁,不經此卡。 */
+const waitingResult = ref<WaitingResult | null>(null)
+const waitingOpen = computed(() => buyPhase.value === 'queuing' || waitingResult.value !== null)
+const waitingMode = computed<'queuing' | 'result'>(() =>
+  buyPhase.value === 'queuing' ? 'queuing' : 'result',
+)
+
+function goOrdersFromResult() {
+  waitingResult.value = null
+  router.push('/orders')
+}
 
 async function onBuy(t: TicketTypeView) {
   if (!auth.isLoggedIn) {
@@ -148,6 +161,7 @@ async function onBuy(t: TicketTypeView) {
     router.push({ path: '/login', query: { redirect: route.fullPath } })
     return
   }
+  waitingResult.value = null
   try {
     const outcome = await buy(t.id)
     switch (outcome.status) {
@@ -156,11 +170,21 @@ async function onBuy(t: TicketTypeView) {
         router.push(`/orders/${outcome.orderId}`)
         break
       case 'FAIL':
-        ElMessage.error(`搶購失敗:${outcome.reason}`)
+        waitingResult.value = {
+          kind: 'fail',
+          title: '搶購失敗',
+          message: outcome.reason ?? '這次沒能搶到,別灰心,再看看其他票種。',
+          viewOrders: false,
+        }
         load()
         break
       case 'TIMEOUT':
-        ElMessage.warning('仍在排隊處理中,請稍後至「我的訂單」確認結果')
+        waitingResult.value = {
+          kind: 'timeout',
+          title: '仍在處理中',
+          message: '系統還在處理你的請求。結果會出現在「我的訂單」,請前往查看,不需重新搶購。',
+          viewOrders: true,
+        }
         break
       case 'CANCELLED':
         break
@@ -177,17 +201,27 @@ function handleBuyError(e: unknown) {
     return
   }
   switch (e.code) {
-    case 3004: // 限流(429)
+    case 3004: // 限流(429):暫時性、可重試,維持輕量提示
       ElMessage.warning('請求過於頻繁,請稍候幾秒再試')
       break
-    case 3005: // 售罄
-      ElMessage.error('此票種已售罄')
+    case 3005: // 售罄:終局結果 → 結果卡
+      waitingResult.value = {
+        kind: 'soldout',
+        title: '此票種已售罄',
+        message: '手速再快一點!看看這場的其他票種,或探索別的活動。',
+        viewOrders: false,
+      }
       load()
       break
-    case 3006: // 重複購買
-      ElMessage.info('您已購買過此票種(每人限購一張),可至「我的訂單」查看')
+    case 3006: // 重複購買:終局結果 → 結果卡並引導至訂單
+      waitingResult.value = {
+        kind: 'duplicate',
+        title: '你已購買過此票種',
+        message: '每人限購一張。可到「我的訂單」查看並完成付款。',
+        viewOrders: true,
+      }
       break
-    case 3007: // token 無效/已用
+    case 3007: // token 無效/已用:暫時性、可重試,維持輕量提示
       ElMessage.warning('搶購憑證已失效,請再點一次「立即搶購」')
       break
     default:
@@ -297,17 +331,14 @@ const primarySold = computed(() =>
         </aside>
       </div>
 
-      <el-dialog
-        :model-value="buyPhase === 'queuing'"
-        title="排隊中"
-        width="320"
-        align-center
-        :close-on-click-modal="false"
-        :close-on-press-escape="false"
-        :show-close="false"
-      >
-        <div v-loading="true" element-loading-text="正在為你確認搶購結果…" class="queue-dialog-body" />
-      </el-dialog>
+      <WaitingRoom
+        v-if="waitingOpen"
+        :mode="waitingMode"
+        :started-at="queueStartedAt"
+        :result="waitingResult"
+        @close="waitingResult = null"
+        @view-orders="goOrdersFromResult"
+      />
     </template>
   </div>
 </template>
@@ -488,10 +519,6 @@ const primarySold = computed(() =>
   100% {
     box-shadow: 0 0 0 16px color-mix(in srgb, var(--brand-primary) 0%, transparent);
   }
-}
-
-.queue-dialog-body {
-  height: 90px;
 }
 
 /* ---------- 手機:購票面板改底部固定列 ---------- */

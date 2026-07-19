@@ -1,4 +1,4 @@
-import { onBeforeUnmount, ref } from 'vue'
+import { onBeforeUnmount, readonly, ref } from 'vue'
 import { fetchResult, fetchSeckillToken, purchase } from '@/api/seckill'
 
 /**
@@ -27,6 +27,10 @@ export function useSeckillFlow() {
   const phase = ref<SeckillPhase>('idle')
   /** 進行中的票種 id(供按鈕 loading 判斷);null 表示無進行中的搶購。 */
   const buyingTicketTypeId = ref<string | null>(null)
+  /** 目前輪詢次數(1-based,唯讀);僅供 UI 呈現,不影響輪詢策略。 */
+  const attempt = ref(0)
+  /** 進入排隊的時間戳(ms epoch,唯讀);null 表示未在排隊。UI 據此算已等待秒數。 */
+  const queueStartedAt = ref<number | null>(null)
 
   // 元件卸載後停止輪詢(結果留給「我的訂單」頁查)
   let cancelled = false
@@ -49,8 +53,10 @@ export function useSeckillFlow() {
       const { requestId } = await purchase(ticketTypeId, token)
 
       phase.value = 'queuing'
+      queueStartedAt.value = Date.now()
       let interval = POLL_INITIAL_MS
-      for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
+      for (let i = 0; i < POLL_MAX_ATTEMPTS; i++) {
+        attempt.value = i + 1
         await sleep(interval)
         if (cancelled) return { status: 'CANCELLED' }
         try {
@@ -71,8 +77,16 @@ export function useSeckillFlow() {
     } finally {
       phase.value = 'idle'
       buyingTicketTypeId.value = null
+      attempt.value = 0
+      queueStartedAt.value = null
     }
   }
 
-  return { phase, buyingTicketTypeId, buy }
+  return {
+    phase,
+    buyingTicketTypeId,
+    buy,
+    attempt: readonly(attempt),
+    queueStartedAt: readonly(queueStartedAt),
+  }
 }
