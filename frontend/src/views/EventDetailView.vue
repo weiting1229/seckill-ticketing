@@ -9,6 +9,10 @@ import { useSeckillFlow } from '@/composables/useSeckillFlow'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime, formatDuration } from '@/utils/datetime'
 import { calibrate, serverNow } from '@/utils/serverClock'
+import { availabilityOf } from '@/utils/ticketDisplay'
+import GenerativePoster from '@/components/GenerativePoster.vue'
+import CountdownBoard from '@/components/CountdownBoard.vue'
+import TicketTypeCard from '@/components/TicketTypeCard.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -61,12 +65,34 @@ function phaseOf(t: TicketTypeView): Phase {
   return 'ended'
 }
 
+/** 剛由 upcoming 跨入 live 的票種 id,用於按鈕一次性脈衝(短暫) */
+const justOpenedId = ref<string | null>(null)
+let pulseTimer: number | undefined
+
 /** 任一票種跨越開賣/結束邊界時重新載入,更新即時剩餘並重新校準時鐘。 */
 const phaseSignature = computed(() =>
   (detail.value?.ticketTypes ?? []).map((t) => phaseOf(t)).join(','),
 )
 watch(phaseSignature, (next, prev) => {
-  if (prev && next !== prev) load()
+  if (!prev || next === prev) return
+  // 在重載前偵測 upcoming → live 的票種,觸發按鈕點亮脈衝
+  const prevPhases = prev.split(',')
+  const nextPhases = next.split(',')
+  const tts = detail.value?.ticketTypes ?? []
+  const opened = tts.find((t, i) => prevPhases[i] === 'upcoming' && nextPhases[i] === 'live')
+  if (opened) {
+    justOpenedId.value = opened.id
+    if (pulseTimer !== undefined) window.clearTimeout(pulseTimer)
+    pulseTimer = window.setTimeout(() => {
+      justOpenedId.value = null
+    }, 1400)
+  }
+  // 現有重載邏輯不動:跨邊界即重新拉取最新剩餘與 serverTime
+  load()
+})
+
+onBeforeUnmount(() => {
+  if (pulseTimer !== undefined) window.clearTimeout(pulseTimer)
 })
 
 function countdownText(t: TicketTypeView): string {
@@ -76,23 +102,41 @@ function countdownText(t: TicketTypeView): string {
   return ''
 }
 
-const phaseLabel: Record<Phase, string> = {
-  offline: '未開放',
-  upcoming: '即將開賣',
-  live: '開賣中',
-  ended: '已結束',
+function buyDisabled(t: TicketTypeView): boolean {
+  return phaseOf(t) !== 'live' || t.remaining === 0 || buyingTicketTypeId.value !== null
 }
 
-const phaseTagType: Record<Phase, 'info' | 'warning' | 'success' | 'danger'> = {
-  offline: 'info',
-  upcoming: 'warning',
-  live: 'success',
-  ended: 'danger',
-}
+/** 看板 / sticky 面板聚焦的「主要票種」:優先進行中(最快結束),否則最快開賣者。 */
+const primary = computed<{ ticket: TicketTypeView; phase: Phase } | null>(() => {
+  const tts = detail.value?.ticketTypes ?? []
+  const live = tts
+    .filter((t) => phaseOf(t) === 'live')
+    .sort((a, b) => Date.parse(a.seckillEnd) - Date.parse(b.seckillEnd))
+  if (live[0]) return { ticket: live[0], phase: 'live' }
+  const upcoming = tts
+    .filter((t) => phaseOf(t) === 'upcoming')
+    .sort((a, b) => Date.parse(a.seckillStart) - Date.parse(b.seckillStart))
+  if (upcoming[0]) return { ticket: upcoming[0], phase: 'upcoming' }
+  return null
+})
 
-function formatPrice(price: string | number): string {
-  return `NT$ ${Number(price).toLocaleString()}`
-}
+const boardMs = computed(() => {
+  if (!primary.value) return 0
+  const t = primary.value.ticket
+  return primary.value.phase === 'live'
+    ? Date.parse(t.seckillEnd) - now.value
+    : Date.parse(t.seckillStart) - now.value
+})
+
+const hasCover = computed(() => !!detail.value?.coverImageUrl)
+const coverFailed = ref(false)
+watch(
+  () => detail.value?.coverImageUrl,
+  () => {
+    coverFailed.value = false
+  },
+)
+const showCover = computed(() => hasCover.value && !coverFailed.value)
 
 // ---------- 搶購流程(領 token → purchase → 輪詢結果) ----------
 
@@ -152,10 +196,14 @@ function handleBuyError(e: unknown) {
       load()
   }
 }
+
+const primarySold = computed(() =>
+  primary.value ? availabilityOf(primary.value.ticket.remaining, primary.value.ticket.totalStock)?.kind === 'sold' : false,
+)
 </script>
 
 <template>
-  <div v-loading="loading" class="event-detail">
+  <div v-loading="loading && !detail" class="detail">
     <el-result v-if="notFound" icon="warning" title="活動不存在或未發布">
       <template #extra>
         <el-button type="primary" @click="router.push('/events')">回活動列表</el-button>
@@ -163,49 +211,91 @@ function handleBuyError(e: unknown) {
     </el-result>
 
     <template v-else-if="detail">
-      <el-page-header content="活動詳情" @back="router.push('/events')" />
-
-      <el-card class="info-card">
-        <h2 class="event-title">{{ detail.title }}</h2>
-        <p v-if="detail.description" class="event-desc">{{ detail.description }}</p>
-        <div class="event-meta">
-          <span v-if="detail.venue">📍 {{ detail.venue }}</span>
-          <span>🕒 演出時間:{{ formatDateTime(detail.eventTime) }}</span>
+      <!-- Hero 沉浸區 -->
+      <section class="hero">
+        <div class="hero__bg">
+          <img
+            v-if="showCover"
+            :src="detail.coverImageUrl!"
+            :alt="`${detail.title} 主視覺`"
+            class="hero__img"
+            @error="coverFailed = true"
+          />
+          <GenerativePoster v-else :title="detail.title" variant="banner" :show-label="false" />
         </div>
-      </el-card>
+        <div class="hero__scrim"></div>
+        <div class="hero__content">
+          <button class="hero__back" type="button" @click="router.push('/events')">← 活動列表</button>
+          <h1 class="hero__title">{{ detail.title }}</h1>
+          <div class="hero__meta">
+            <span v-if="detail.venue">📍 {{ detail.venue }}</span>
+            <span class="tabular-nums">🕒 {{ formatDateTime(detail.eventTime) }}</span>
+          </div>
+        </div>
+      </section>
 
-      <h3>票種</h3>
-      <el-empty v-if="detail.ticketTypes.length === 0" description="尚未設定票種" />
+      <div class="detail__body">
+        <div class="detail__main">
+          <section v-if="detail.description" class="about">
+            <h2 class="section-title">關於活動</h2>
+            <p class="about__text">{{ detail.description }}</p>
+          </section>
 
-      <el-card v-for="t in detail.ticketTypes" :key="t.id" class="ticket-card">
-        <div class="ticket-row">
-          <div class="ticket-info">
-            <div class="ticket-name">
-              {{ t.name }}
-              <el-tag :type="phaseTagType[phaseOf(t)]" size="small">{{ phaseLabel[phaseOf(t)] }}</el-tag>
+          <section class="tickets">
+            <h2 class="section-title">票種</h2>
+            <el-empty v-if="detail.ticketTypes.length === 0" description="尚未設定票種" />
+            <div v-else class="tickets__list">
+              <TicketTypeCard
+                v-for="t in detail.ticketTypes"
+                :key="t.id"
+                :ticket="t"
+                :phase="phaseOf(t)"
+                :disabled="buyDisabled(t)"
+                :loading="buyingTicketTypeId === t.id"
+                :pulse="justOpenedId === t.id"
+                :countdown="countdownText(t)"
+                @buy="onBuy(t)"
+              />
             </div>
-            <div class="ticket-meta">
-              <span class="ticket-price">{{ formatPrice(t.price) }}</span>
-              <span>剩餘:{{ t.remaining ?? '—' }} / {{ t.totalStock }}</span>
-            </div>
-            <div class="ticket-meta">
-              <span>開賣:{{ formatDateTime(t.seckillStart) }} ~ {{ formatDateTime(t.seckillEnd) }}</span>
-            </div>
-            <div v-if="countdownText(t)" class="countdown" :class="{ live: phaseOf(t) === 'live' }">
-              ⏱ {{ countdownText(t) }}
+          </section>
+        </div>
+
+        <!-- Sticky 購票面板(桌面右側 / 手機底部固定) -->
+        <aside class="detail__aside">
+          <div class="buy-panel">
+            <template v-if="primary">
+              <CountdownBoard
+                class="buy-panel__board"
+                :ms="boardMs"
+                :label="primary.phase === 'live' ? '距結束' : '距開賣'"
+                :tone="primary.phase === 'live' ? 'live' : 'upcoming'"
+              />
+              <div class="buy-panel__row">
+                <div class="buy-panel__ticket">
+                  <span class="buy-panel__ticket-name">{{ primary.ticket.name }}</span>
+                  <span class="buy-panel__ticket-price tabular-nums">
+                    NT$ {{ Number(primary.ticket.price).toLocaleString() }}
+                  </span>
+                </div>
+                <el-button
+                  class="buy-panel__cta"
+                  :class="{ 'is-pulse': justOpenedId === primary.ticket.id }"
+                  type="primary"
+                  size="large"
+                  :disabled="buyDisabled(primary.ticket)"
+                  :loading="buyingTicketTypeId === primary.ticket.id"
+                  @click="onBuy(primary.ticket)"
+                >
+                  {{ primary.phase === 'live' ? (primarySold ? '已售罄' : '立即搶購') : '即將開賣' }}
+                </el-button>
+              </div>
+            </template>
+            <div v-else class="buy-panel__idle">
+              <p class="buy-panel__idle-text">目前沒有可購買的票種</p>
             </div>
           </div>
-          <el-button
-            type="danger"
-            size="large"
-            :disabled="phaseOf(t) !== 'live' || t.remaining === 0 || buyingTicketTypeId !== null"
-            :loading="buyingTicketTypeId === t.id"
-            @click="onBuy(t)"
-          >
-            {{ phaseOf(t) === 'live' && t.remaining === 0 ? '已售罄' : '立即搶購' }}
-          </el-button>
-        </div>
-      </el-card>
+        </aside>
+      </div>
 
       <el-dialog
         :model-value="buyPhase === 'queuing'"
@@ -216,82 +306,246 @@ function handleBuyError(e: unknown) {
         :close-on-press-escape="false"
         :show-close="false"
       >
-        <div
-          v-loading="true"
-          element-loading-text="正在為你確認搶購結果…"
-          class="queue-dialog-body"
-        />
+        <div v-loading="true" element-loading-text="正在為你確認搶購結果…" class="queue-dialog-body" />
       </el-dialog>
     </template>
   </div>
 </template>
 
 <style scoped>
-.info-card {
-  margin: 16px 0;
+.detail {
+  /* 手機底部固定購票列的高度預留,避免遮住內容 */
+  padding-bottom: 0;
 }
 
-.event-title {
-  margin: 0 0 8px;
+/* ---------- Hero ---------- */
+.hero {
+  position: relative;
+  margin: -20px -20px 24px;
+  min-height: clamp(220px, 38vw, 420px);
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
 }
 
-.event-desc {
-  color: var(--el-text-color-regular);
+.hero__bg {
+  position: absolute;
+  inset: 0;
+}
+
+.hero__bg :deep(.poster) {
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+
+.hero__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.hero__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to top,
+    rgba(5, 6, 12, 0.94) 0%,
+    rgba(5, 6, 12, 0.55) 40%,
+    rgba(5, 6, 12, 0.1) 100%
+  );
+}
+
+.hero__content {
+  position: relative;
+  width: 100%;
+  padding: 24px 20px;
+  color: #f8fafc;
+}
+
+.hero__back {
+  border: none;
+  background: transparent;
+  color: rgba(248, 250, 252, 0.85);
+  font-size: 14px;
+  padding: 0;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+
+.hero__back:hover {
+  color: #fff;
+}
+
+.hero__title {
+  margin: 0 0 10px;
+  font-size: clamp(24px, 5vw, 40px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.5);
+}
+
+.hero__meta {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  color: rgba(248, 250, 252, 0.88);
+}
+
+/* ---------- 內容雙欄 ---------- */
+.detail__body {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 28px;
+  align-items: start;
+}
+
+.section-title {
+  margin: 0 0 14px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.about {
+  margin-bottom: 28px;
+}
+
+.about__text {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.7;
   white-space: pre-wrap;
 }
 
-.event-meta {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
+.tickets__list {
   display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ---------- Sticky 購票面板 ---------- */
+.detail__aside {
+  position: sticky;
+  top: calc(var(--header-height) + 16px);
+}
+
+.buy-panel {
+  padding: 18px;
+  border-radius: var(--radius-card);
+  background: var(--bg-surface);
+  border: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
   gap: 16px;
-  flex-wrap: wrap;
 }
 
-.ticket-card {
-  margin-bottom: 12px;
-}
-
-.ticket-row {
+.buy-panel__row {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.buy-panel__ticket {
+  display: flex;
+  align-items: baseline;
   justify-content: space-between;
-  gap: 16px;
-}
-
-.ticket-name {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 6px;
-  display: flex;
-  align-items: center;
   gap: 8px;
 }
 
-.ticket-meta {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-  display: flex;
-  gap: 16px;
-  margin-bottom: 4px;
-}
-
-.ticket-price {
-  color: var(--el-color-danger);
-  font-weight: 600;
-}
-
-.countdown {
-  font-variant-numeric: tabular-nums;
-  color: var(--el-color-warning);
+.buy-panel__ticket-name {
   font-size: 14px;
+  color: var(--text-secondary);
 }
 
-.countdown.live {
-  color: var(--el-color-success);
+.buy-panel__ticket-price {
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.buy-panel__cta {
+  width: 100%;
+}
+
+.buy-panel__idle-text {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* 脈衝(與 TicketTypeCard 一致) */
+.buy-panel__cta.is-pulse {
+  animation: cta-pulse 0.6s ease-out 2;
+}
+
+@keyframes cta-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand-primary) 70%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 16px color-mix(in srgb, var(--brand-primary) 0%, transparent);
+  }
 }
 
 .queue-dialog-body {
   height: 90px;
+}
+
+/* ---------- 手機:購票面板改底部固定列 ---------- */
+@media (max-width: 899px) {
+  .detail__body {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .detail {
+    padding-bottom: 92px;
+  }
+
+  .detail__aside {
+    position: fixed;
+    inset: auto 0 0 0;
+    top: auto;
+    z-index: 50;
+  }
+
+  .buy-panel {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    padding: 12px 16px;
+    background: var(--header-bg);
+    backdrop-filter: blur(14px) saturate(160%);
+  }
+
+  /* 底部列空間有限:隱藏大看板,倒數改由票種列各自呈現 */
+  .buy-panel__board {
+    display: none;
+  }
+
+  .buy-panel__row {
+    flex: 1;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .buy-panel__ticket {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+  }
+
+  .buy-panel__cta {
+    width: auto;
+    min-width: 128px;
+  }
 }
 </style>
