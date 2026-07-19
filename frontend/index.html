@@ -5,6 +5,21 @@
     <link rel="icon" href="/favicon.ico">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>搶票系統</title>
+    <script>
+      // 在首次繪製前套上主題 class,避免深/淺主題閃爍(FOUC)。
+      // 預設深色;與 src/composables/useTheme.ts 的邏輯需一致。
+      (function () {
+        try {
+          var t = localStorage.getItem('theme')
+          if (t !== 'light' && t !== 'dark') t = 'dark'
+          document.documentElement.classList.add(t)
+          document.documentElement.style.colorScheme = t
+        } catch (e) {
+          document.documentElement.classList.add('dark')
+          document.documentElement.style.colorScheme = 'dark'
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>
