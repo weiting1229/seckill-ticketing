@@ -10,12 +10,13 @@ public record EventSummaryResponse(
         String id,
         String title,
         String venue,
+        String coverImageUrl,
         Instant eventTime,
         String status
 ) {
     public static EventSummaryResponse from(Event e) {
         return new EventSummaryResponse(
-                String.valueOf(e.getId()), e.getTitle(), e.getVenue(),
+                String.valueOf(e.getId()), e.getTitle(), e.getVenue(), e.getCoverImageUrl(),
                 e.getEventTime(), e.getStatus().name());
     }
 }

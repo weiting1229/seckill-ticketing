@@ -109,6 +109,40 @@ class AdminEventFlowIT extends AbstractAdminIntegrationTest {
                 .isEqualTo(HttpStatus.NOT_FOUND);
     }
 
+    // ---- 封面圖 URL(M2) ----
+
+    @Test
+    void coverImageUrlCanBeSetClearedAndValidated() {
+        String admin = createAdminToken();
+        String url = "https://cdn.example.com/poster.jpg";
+
+        // 建立帶封面 URL,回應與 get 皆帶出
+        Map<String, Object> body = eventBody("封面活動");
+        body.put("coverImageUrl", url);
+        JsonNode created = json(post("/api/v1/admin/events", admin, body)).path("data");
+        String eventId = created.path("id").asText();
+        assertThat(created.path("coverImageUrl").asText()).isEqualTo(url);
+        assertThat(json(get("/api/v1/admin/events/" + eventId, admin))
+                .path("data").path("coverImageUrl").asText()).isEqualTo(url);
+
+        // 更新為清空(空字串 → 正規化為 null)
+        Map<String, Object> cleared = eventBody("封面活動");
+        cleared.put("status", "DRAFT");
+        cleared.put("coverImageUrl", "");
+        JsonNode updated = json(put("/api/v1/admin/events/" + eventId, admin, cleared)).path("data");
+        JsonNode coverNode = updated.path("coverImageUrl");
+        assertThat(coverNode.isNull() || coverNode.isMissingNode()).isTrue();
+    }
+
+    @Test
+    void nonHttpCoverUrlShouldReturn400() {
+        String admin = createAdminToken();
+        Map<String, Object> bad = eventBody("非法封面");
+        bad.put("coverImageUrl", "ftp://evil.example.com/x.jpg");
+        ResponseEntity<String> resp = post("/api/v1/admin/events", admin, bad);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
     // ---- 狀態機 ----
 
     @Test

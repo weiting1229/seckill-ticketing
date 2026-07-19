@@ -6,11 +6,11 @@
     <!-- status 為 enum,以 EnumTypeHandler 對應 VARCHAR;時間為 Instant 對應 TIMESTAMPTZ。
          map-underscore-to-camel-case 已開啟,欄位自動對應駝峰屬性。 -->
 
-    <sql id="cols">id, title, description, venue, event_time, status, created_at, updated_at</sql>
+    <sql id="cols">id, title, description, venue, cover_image_url, event_time, status, created_at, updated_at</sql>
 
     <insert id="insert" parameterType="com.seckill.event.domain.Event">
-        INSERT INTO events (id, title, description, venue, event_time, status, created_at, updated_at)
-        VALUES (#{id}, #{title}, #{description}, #{venue}, #{eventTime}, #{status}, #{createdAt}, #{updatedAt})
+        INSERT INTO events (id, title, description, venue, cover_image_url, event_time, status, created_at, updated_at)
+        VALUES (#{id}, #{title}, #{description}, #{venue}, #{coverImageUrl}, #{eventTime}, #{status}, #{createdAt}, #{updatedAt})
     </insert>
 
     <select id="findById" resultType="com.seckill.event.domain.Event">
@@ -22,6 +22,7 @@
         SET title = #{title},
             description = #{description},
             venue = #{venue},
+            cover_image_url = #{coverImageUrl},
             event_time = #{eventTime},
             status = #{status},
             updated_at = #{updatedAt}

@@ -13,6 +13,8 @@ public class Event {
     private String title;
     private String description;
     private String venue;
+    /** 封面圖 URL,可為空;空時前端渲染生成式海報(方案 C)。 */
+    private String coverImageUrl;
     private Instant eventTime;
     private EventStatus status;
     private Instant createdAt;

@@ -54,6 +54,7 @@ public class EventService {
         event.setTitle(req.title());
         event.setDescription(req.description());
         event.setVenue(req.venue());
+        event.setCoverImageUrl(blankToNull(req.coverImageUrl()));
         event.setEventTime(req.eventTime());
         event.setStatus(EventStatus.DRAFT);
         event.setCreatedAt(now);
@@ -87,6 +88,7 @@ public class EventService {
         event.setTitle(req.title());
         event.setDescription(req.description());
         event.setVenue(req.venue());
+        event.setCoverImageUrl(blankToNull(req.coverImageUrl()));
         event.setEventTime(req.eventTime());
         event.setStatus(req.status());
         event.setUpdatedAt(Instant.now());
@@ -136,6 +138,11 @@ public class EventService {
             throw new BusinessException(BizCode.EVENT_NOT_FOUND);
         }
         return event;
+    }
+
+    /** 空白字串正規化為 null,使封面欄位在 DB 統一以 null 表示「未設定」。 */
+    private String blankToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s;
     }
 
     private int normalizePage(int page) {

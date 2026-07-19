@@ -26,6 +26,16 @@ class PublicEventIT extends AbstractAdminIntegrationTest {
         return json(post("/api/v1/admin/events", admin, m)).path("data").path("id").asText();
     }
 
+    private String createEventWithCover(String admin, String title, String coverUrl) {
+        Map<String, Object> m = new HashMap<>();
+        m.put("title", title);
+        m.put("description", "公開描述");
+        m.put("venue", "Taipei Dome");
+        m.put("coverImageUrl", coverUrl);
+        m.put("eventTime", Instant.now().plus(20, ChronoUnit.DAYS).toString());
+        return json(post("/api/v1/admin/events", admin, m)).path("data").path("id").asText();
+    }
+
     private void publish(String admin, String eventId, String title) {
         Map<String, Object> m = new HashMap<>();
         m.put("title", title);
@@ -108,6 +118,38 @@ class PublicEventIT extends AbstractAdminIntegrationTest {
         JsonNode ttAfter = after.path("ticketTypes").get(0);
         assertThat(ttAfter.path("remaining").asInt()).isEqualTo(300);
         assertThat(ttAfter.path("status").asText()).isEqualTo("ONLINE");
+    }
+
+    @Test
+    void publicListAndDetailCarryCoverImageUrl() {
+        String admin = createAdminToken();
+        String coverUrl = "https://cdn.example.com/cover.png";
+        String eventId = createEventWithCover(admin, "封面公開活動", coverUrl);
+
+        // 發布時於全量入參保留封面(PUT 全量,不帶會被清空)
+        Map<String, Object> pub = new HashMap<>();
+        pub.put("title", "封面公開活動");
+        pub.put("description", "公開描述");
+        pub.put("venue", "Taipei Dome");
+        pub.put("coverImageUrl", coverUrl);
+        pub.put("eventTime", Instant.now().plus(20, ChronoUnit.DAYS).toString());
+        pub.put("status", "PUBLISHED");
+        put("/api/v1/admin/events/" + eventId, admin, pub);
+
+        // 公開詳情帶出封面
+        assertThat(json(get("/api/v1/events/" + eventId, null))
+                .path("data").path("coverImageUrl").asText()).isEqualTo(coverUrl);
+
+        // 公開列表對應項帶出封面
+        boolean found = false;
+        JsonNode items = json(get("/api/v1/events?page=1&size=50", null)).path("data").path("items");
+        for (JsonNode it : items) {
+            if (it.path("id").asText().equals(eventId)) {
+                assertThat(it.path("coverImageUrl").asText()).isEqualTo(coverUrl);
+                found = true;
+            }
+        }
+        assertThat(found).isTrue();
     }
 
     @Test

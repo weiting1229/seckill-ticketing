@@ -13,6 +13,7 @@ public record EventDetailResponse(
         String title,
         String description,
         String venue,
+        String coverImageUrl,
         Instant eventTime,
         String status,
         List<TicketTypeView> ticketTypes,
@@ -21,6 +22,6 @@ public record EventDetailResponse(
     public static EventDetailResponse of(Event e, List<TicketTypeView> ticketTypes, Instant serverTime) {
         return new EventDetailResponse(
                 String.valueOf(e.getId()), e.getTitle(), e.getDescription(), e.getVenue(),
-                e.getEventTime(), e.getStatus().name(), ticketTypes, serverTime);
+                e.getCoverImageUrl(), e.getEventTime(), e.getStatus().name(), ticketTypes, serverTime);
     }
 }

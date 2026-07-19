@@ -11,6 +11,7 @@ public record EventAdminResponse(
         String title,
         String description,
         String venue,
+        String coverImageUrl,
         Instant eventTime,
         String status,
         Instant createdAt,
@@ -19,6 +20,6 @@ public record EventAdminResponse(
     public static EventAdminResponse from(Event e) {
         return new EventAdminResponse(
                 String.valueOf(e.getId()), e.getTitle(), e.getDescription(), e.getVenue(),
-                e.getEventTime(), e.getStatus().name(), e.getCreatedAt(), e.getUpdatedAt());
+                e.getCoverImageUrl(), e.getEventTime(), e.getStatus().name(), e.getCreatedAt(), e.getUpdatedAt());
     }
 }
