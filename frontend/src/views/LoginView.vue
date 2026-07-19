@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { BizError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
+import GenerativePoster from '@/components/GenerativePoster.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -106,8 +107,16 @@ async function onRegister() {
 
 <template>
   <div class="login-page">
+    <div class="login-bg" aria-hidden="true">
+      <GenerativePoster title="TIXCO LIVE" variant="banner" :show-label="false" />
+      <div class="login-bg__scrim"></div>
+    </div>
     <el-card class="login-card">
-      <h2 class="login-title">🎫 搶票系統</h2>
+      <div class="login-brand">
+        <span class="login-brand__dot" aria-hidden="true"></span>
+        <span class="login-brand__word">TIXCO</span>
+      </div>
+      <p class="login-sub">登入以搶購你的下一場現場</p>
       <el-tabs v-model="activeTab" stretch>
         <el-tab-pane label="登入" name="login">
           <el-alert
@@ -200,19 +209,81 @@ async function onRegister() {
 
 <style scoped>
 .login-page {
+  position: relative;
+  /* 滿版沉浸:抵銷 app-main 的 padding 讓品牌背景延伸到邊緣 */
+  margin: -20px;
+  min-height: calc(100vh - var(--header-height));
   display: flex;
+  align-items: center;
   justify-content: center;
-  padding-top: 48px;
+  padding: 40px 20px;
+}
+
+.login-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.login-bg :deep(.poster) {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+
+.login-bg__scrim {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    120% 90% at 50% 40%,
+    rgba(5, 6, 12, 0.55) 0%,
+    rgba(5, 6, 12, 0.85) 70%,
+    rgba(5, 6, 12, 0.95) 100%
+  );
 }
 
 .login-card {
+  position: relative;
+  z-index: 1;
   width: 400px;
   max-width: 100%;
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--hairline);
 }
 
-.login-title {
-  margin: 0 0 16px;
+.login-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 4px;
+}
+
+.login-brand__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand-accent) 22%, transparent);
+}
+
+.login-brand__word {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  background: linear-gradient(90deg, var(--brand-primary), var(--brand-accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.login-sub {
+  margin: 8px 0 12px;
   text-align: center;
+  font-size: 14px;
+  color: var(--text-secondary);
 }
 
 .form-alert {
