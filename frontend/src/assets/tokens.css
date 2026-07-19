@@ -1,0 +1,246 @@
+/* =============================================================
+   設計系統 tokens — Seckill Ticketing(M1 基座)
+   色板方向為唯一事實來源:docs/design/02-UIUX優化計畫.md §2.2
+   深色為預設主題;html.dark / html.light 兩 scope 下映射到
+   Element Plus 的 --el-* 變數。載入順序見 main.ts:
+     EP 基底 css → EP dark css-vars → 本檔 → main.css
+   ============================================================= */
+
+/* ---------- 主題無關(形狀 / 動效 / 版面) ---------- */
+:root {
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --radius-pill: 999px;
+
+  --transition-base: 160ms ease;
+  --transition-slow: 260ms ease;
+
+  --header-height: 60px;
+  --content-max: 1080px;
+
+  /* 數字一律等寬,供倒數 / 價格 / 剩餘量沿用 */
+  --font-numeric: 'Helvetica Neue', ui-monospace, 'SFMono-Regular', monospace;
+}
+
+/* =============================================================
+   深色主題(預設)
+   ============================================================= */
+html.dark {
+  color-scheme: dark;
+
+  /* --- 語意 tokens(供各元件 / 後續里程碑直接取用) --- */
+  --bg-base: #0b0e16;
+  --bg-surface: #171c29;
+  --bg-overlay: #1b2130;
+  --brand-primary: #7063ff;
+  --brand-primary-hover: #8b7dff;
+  --brand-accent: #22d3ee;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --hairline: rgba(148, 163, 184, 0.14);
+
+  /* header 玻璃感 */
+  --header-bg: rgba(11, 14, 22, 0.72);
+  --header-border: rgba(148, 163, 184, 0.16);
+  --footer-bg: #0d111b;
+
+  /* 深色少用陰影,以表面亮度差 + 1px 邊框區分層次 */
+  --shadow-elevate: 0 8px 30px rgba(0, 0, 0, 0.45);
+
+  /* --- Element Plus 映射 --- */
+  --el-color-primary: #7063ff;
+  --el-color-primary-light-3: #8b7dff; /* hover(深色下較亮) */
+  --el-color-primary-light-5: #504a9e;
+  --el-color-primary-light-7: #363367;
+  --el-color-primary-light-8: #2a2851;
+  --el-color-primary-light-9: #20203c; /* 選單選中 / 淡底 */
+  --el-color-primary-dark-2: #5a4fd0; /* active */
+
+  --el-color-success: #22c55e;
+  --el-color-success-light-3: #1f8f4a;
+  --el-color-success-light-5: #17603a;
+  --el-color-success-light-7: #123a2b;
+  --el-color-success-light-8: #10241f;
+  --el-color-success-light-9: #0e1b1a;
+  --el-color-success-dark-2: #45d477;
+
+  --el-color-warning: #f59e0b;
+  --el-color-warning-light-3: #b0740d;
+  --el-color-warning-light-5: #714e12;
+  --el-color-warning-light-7: #45330f;
+  --el-color-warning-light-8: #2c220d;
+  --el-color-warning-light-9: #1e1a0e;
+  --el-color-warning-dark-2: #f7b23a;
+
+  --el-color-danger: #ef4444;
+  --el-color-danger-light-3: #b13636;
+  --el-color-danger-light-5: #722929;
+  --el-color-danger-light-7: #451d1d;
+  --el-color-danger-light-8: #2c1717;
+  --el-color-danger-light-9: #1e1212;
+  --el-color-danger-dark-2: #f26a6a;
+
+  --el-color-error: #ef4444;
+  --el-color-error-light-3: #b13636;
+  --el-color-error-light-5: #722929;
+  --el-color-error-light-7: #451d1d;
+  --el-color-error-light-8: #2c1717;
+  --el-color-error-light-9: #1e1212;
+  --el-color-error-dark-2: #f26a6a;
+
+  --el-color-info: #94a3b8;
+  --el-color-info-light-3: #6b7688;
+  --el-color-info-light-5: #4a5262;
+  --el-color-info-light-7: #333a47;
+  --el-color-info-light-8: #262c37;
+  --el-color-info-light-9: #1c212b;
+  --el-color-info-dark-2: #aab4c4;
+
+  /* 背景層 */
+  --el-bg-color: var(--bg-surface);
+  --el-bg-color-page: var(--bg-base);
+  --el-bg-color-overlay: var(--bg-overlay);
+
+  /* 文字層 */
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: #cbd5e1;
+  --el-text-color-secondary: var(--text-secondary);
+  --el-text-color-placeholder: #64748b;
+  --el-text-color-disabled: #475569;
+
+  /* 邊框層(低透明白) */
+  --el-border-color: rgba(148, 163, 184, 0.2);
+  --el-border-color-light: rgba(148, 163, 184, 0.14);
+  --el-border-color-lighter: rgba(148, 163, 184, 0.1);
+  --el-border-color-extra-light: rgba(148, 163, 184, 0.06);
+  --el-border-color-dark: rgba(148, 163, 184, 0.28);
+  --el-border-color-darker: rgba(148, 163, 184, 0.36);
+
+  /* 填色層 */
+  --el-fill-color: rgba(148, 163, 184, 0.16);
+  --el-fill-color-light: rgba(148, 163, 184, 0.1);
+  --el-fill-color-lighter: rgba(148, 163, 184, 0.06);
+  --el-fill-color-extra-light: rgba(148, 163, 184, 0.04);
+  --el-fill-color-dark: rgba(148, 163, 184, 0.2);
+  --el-fill-color-darker: rgba(148, 163, 184, 0.24);
+  --el-fill-color-blank: var(--bg-surface);
+
+  --el-mask-color: rgba(11, 14, 22, 0.8);
+  --el-mask-color-extra-light: rgba(11, 14, 22, 0.3);
+
+  --el-box-shadow: var(--shadow-elevate);
+  --el-box-shadow-light: 0 2px 12px rgba(0, 0, 0, 0.35);
+  --el-box-shadow-lighter: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --el-box-shadow-dark: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+/* =============================================================
+   淺色主題(由深色同色相推導、調亮度;正文對比 ≥ WCAG AA 4.5:1)
+   ============================================================= */
+html.light {
+  color-scheme: light;
+
+  --bg-base: #f4f5fa;
+  --bg-surface: #ffffff;
+  --bg-overlay: #ffffff;
+  --brand-primary: #5b4fd6; /* 深一階以符合白底連結對比 (~5.9:1) */
+  --brand-primary-hover: #7063ff;
+  --brand-accent: #0891b2; /* 青色調深,白底可讀 */
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --hairline: rgba(15, 23, 42, 0.08);
+
+  --header-bg: rgba(255, 255, 255, 0.72);
+  --header-border: rgba(15, 23, 42, 0.08);
+  --footer-bg: #eef0f6;
+
+  --shadow-elevate: 0 6px 24px rgba(15, 23, 42, 0.1);
+
+  /* --- Element Plus 映射 --- */
+  --el-color-primary: #5b4fd6;
+  --el-color-primary-light-3: #7063ff; /* hover(淺色下較亮) */
+  --el-color-primary-light-5: #a99ff0;
+  --el-color-primary-light-7: #d0caf8;
+  --el-color-primary-light-8: #e1ddfb;
+  --el-color-primary-light-9: #f0eefe;
+  --el-color-primary-dark-2: #4a40b8;
+
+  --el-color-success: #16a34a;
+  --el-color-success-light-3: #5cbf82;
+  --el-color-success-light-5: #8ad3a5;
+  --el-color-success-light-7: #b8e6c9;
+  --el-color-success-light-8: #d1efdb;
+  --el-color-success-light-9: #eaf7ee;
+  --el-color-success-dark-2: #128040;
+
+  --el-color-warning: #d97706;
+  --el-color-warning-light-3: #e69f4d;
+  --el-color-warning-light-5: #ecba80;
+  --el-color-warning-light-7: #f3d6b3;
+  --el-color-warning-light-8: #f7e4cc;
+  --el-color-warning-light-9: #fbf2e6;
+  --el-color-warning-dark-2: #ad5f05;
+
+  --el-color-danger: #dc2626;
+  --el-color-danger-light-3: #e66565;
+  --el-color-danger-light-5: #ed9393;
+  --el-color-danger-light-7: #f4c1c1;
+  --el-color-danger-light-8: #f8d6d6;
+  --el-color-danger-light-9: #fbeaea;
+  --el-color-danger-dark-2: #b01e1e;
+
+  --el-color-error: #dc2626;
+  --el-color-error-light-3: #e66565;
+  --el-color-error-light-5: #ed9393;
+  --el-color-error-light-7: #f4c1c1;
+  --el-color-error-light-8: #f8d6d6;
+  --el-color-error-light-9: #fbeaea;
+  --el-color-error-dark-2: #b01e1e;
+
+  --el-color-info: #64748b;
+  --el-color-info-light-3: #93a0b0;
+  --el-color-info-light-5: #b4bdc9;
+  --el-color-info-light-7: #d5dae1;
+  --el-color-info-light-8: #e4e8ec;
+  --el-color-info-light-9: #f2f4f6;
+  --el-color-info-dark-2: #505d70;
+
+  --el-bg-color: var(--bg-surface);
+  --el-bg-color-page: var(--bg-base);
+  --el-bg-color-overlay: var(--bg-overlay);
+
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: #334155;
+  --el-text-color-secondary: var(--text-secondary);
+  --el-text-color-placeholder: #94a3b8;
+  --el-text-color-disabled: #cbd5e1;
+
+  --el-border-color: rgba(15, 23, 42, 0.16);
+  --el-border-color-light: rgba(15, 23, 42, 0.1);
+  --el-border-color-lighter: rgba(15, 23, 42, 0.07);
+  --el-border-color-extra-light: rgba(15, 23, 42, 0.04);
+  --el-border-color-dark: rgba(15, 23, 42, 0.24);
+  --el-border-color-darker: rgba(15, 23, 42, 0.32);
+
+  --el-fill-color: rgba(15, 23, 42, 0.06);
+  --el-fill-color-light: rgba(15, 23, 42, 0.04);
+  --el-fill-color-lighter: rgba(15, 23, 42, 0.03);
+  --el-fill-color-extra-light: rgba(15, 23, 42, 0.02);
+  --el-fill-color-dark: rgba(15, 23, 42, 0.08);
+  --el-fill-color-darker: rgba(15, 23, 42, 0.1);
+  --el-fill-color-blank: #ffffff;
+
+  --el-mask-color: rgba(255, 255, 255, 0.8);
+  --el-mask-color-extra-light: rgba(255, 255, 255, 0.3);
+
+  --el-box-shadow: var(--shadow-elevate);
+  --el-box-shadow-light: 0 2px 12px rgba(15, 23, 42, 0.08);
+  --el-box-shadow-lighter: 0 2px 8px rgba(15, 23, 42, 0.06);
+  --el-box-shadow-dark: 0 12px 40px rgba(15, 23, 42, 0.16);
+}

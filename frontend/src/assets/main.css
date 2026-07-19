@@ -13,7 +13,27 @@ body {
 body {
   font-family:
     'Helvetica Neue', Helvetica, 'PingFang TC', 'Microsoft JhengHei', Arial, sans-serif;
-  background-color: #f5f7fa;
-  color: #303133;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
+  transition:
+    background-color var(--transition-base),
+    color var(--transition-base);
+}
+
+/* 數字(倒數 / 價格 / 剩餘)一律等寬,避免跳動 */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 尊重使用者「減少動態效果」偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
