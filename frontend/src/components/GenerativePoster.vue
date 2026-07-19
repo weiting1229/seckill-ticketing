@@ -17,8 +17,10 @@ const props = withDefaults(
     eventTime?: string
     /** poster = 3:4 直式;banner = 21:9 橫式 hero */
     variant?: 'poster' | 'banner'
+    /** 是否在海報上疊字(團名/副標/日期場地);列表卡片用純藝術時設 false */
+    showLabel?: boolean
   }>(),
-  { subtitle: '', venue: '', eventTime: '', variant: 'poster' },
+  { subtitle: '', venue: '', eventTime: '', variant: 'poster', showLabel: true },
 )
 
 const uid = useId()
@@ -152,9 +154,9 @@ const glowId = computed(() => `gl-${uid}`)
       </g>
     </svg>
 
-    <div class="poster__scrim"></div>
+    <div v-if="showLabel" class="poster__scrim"></div>
 
-    <div class="poster__text">
+    <div v-if="showLabel" class="poster__text">
       <p v-if="formattedDate" class="poster__eyebrow tabular-nums">{{ formattedDate }}</p>
       <h3 class="poster__title">{{ title }}</h3>
       <p v-if="subtitle" class="poster__subtitle">{{ subtitle }}</p>
