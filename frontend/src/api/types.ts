@@ -54,6 +54,8 @@ export interface EventSummary {
   id: string
   title: string
   venue: string | null
+  /** 封面圖 URL;為 null 時前端渲染生成式海報。 */
+  coverImageUrl: string | null
   eventTime: string
   status: EventStatus
 }
@@ -76,6 +78,8 @@ export interface EventDetail {
   title: string
   description: string | null
   venue: string | null
+  /** 封面圖 URL;為 null 時前端渲染生成式海報。 */
+  coverImageUrl: string | null
   eventTime: string
   status: EventStatus
   ticketTypes: TicketTypeView[]
@@ -125,6 +129,7 @@ export interface EventAdmin {
   title: string
   description: string | null
   venue: string | null
+  coverImageUrl: string | null
   eventTime: string
   status: EventStatus
   createdAt: string
@@ -170,6 +175,8 @@ export interface EventUpsertRequest {
   title: string
   description: string | null
   venue: string | null
+  /** 封面圖 URL;空字串或 null 表示清空(後端正規化為 null)。 */
+  coverImageUrl: string | null
   eventTime: string
   /** 僅更新(PUT)時需要;建立一律 DRAFT,不由入參指定。 */
   status?: EventStatus

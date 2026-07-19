@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { createEvent, deleteEvent, listAdminEvents, updateEvent } from '@/api/admin'
 import type { EventAdmin, EventStatus, EventUpsertRequest } from '@/api/types'
 import { formatDateTime } from '@/utils/datetime'
+import GenerativePoster from '@/components/GenerativePoster.vue'
 
 const router = useRouter()
 
@@ -51,12 +52,14 @@ const form = reactive<{
   title: string
   description: string
   venue: string
+  coverImageUrl: string
   eventTime: Date | null
   status: EventStatus
 }>({
   title: '',
   description: '',
   venue: '',
+  coverImageUrl: '',
   eventTime: null,
   status: 'DRAFT',
 })
@@ -67,12 +70,35 @@ const rules: FormRules = {
     { max: 200, message: '長度不可超過 200 字', trigger: 'blur' },
   ],
   eventTime: [{ required: true, message: '請選擇演出時間', trigger: 'change' }],
+  coverImageUrl: [
+    { max: 500, message: '長度不可超過 500 字', trigger: 'blur' },
+    { pattern: /^(https?:\/\/.+)?$/, message: '必須以 http:// 或 https:// 開頭', trigger: 'blur' },
+  ],
 }
+
+// ---------- 封面即時預覽 ----------
+const coverLoadError = ref(false)
+// URL 改變時重置載入失敗狀態,讓新網址重新嘗試
+watch(
+  () => form.coverImageUrl,
+  () => {
+    coverLoadError.value = false
+  },
+)
+const showCoverImage = computed(() => form.coverImageUrl.trim() !== '' && !coverLoadError.value)
+const previewEventTime = computed(() => (form.eventTime ? form.eventTime.toISOString() : ''))
 
 function openCreate() {
   dialogMode.value = 'create'
   editingId.value = null
-  Object.assign(form, { title: '', description: '', venue: '', eventTime: null, status: 'DRAFT' })
+  Object.assign(form, {
+    title: '',
+    description: '',
+    venue: '',
+    coverImageUrl: '',
+    eventTime: null,
+    status: 'DRAFT',
+  })
   dialogVisible.value = true
 }
 
@@ -83,6 +109,7 @@ function openEdit(row: EventAdmin) {
     title: row.title,
     description: row.description ?? '',
     venue: row.venue ?? '',
+    coverImageUrl: row.coverImageUrl ?? '',
     eventTime: new Date(row.eventTime),
     status: row.status,
   })
@@ -95,6 +122,7 @@ async function onSubmit() {
     title: form.title,
     description: form.description || null,
     venue: form.venue || null,
+    coverImageUrl: form.coverImageUrl.trim() || null,
     eventTime: form.eventTime!.toISOString(),
   }
   submitting.value = true
@@ -192,6 +220,36 @@ function goTicketTypes(row: EventAdmin) {
         <el-form-item label="場地">
           <el-input v-model="form.venue" maxlength="200" placeholder="例:台北小巨蛋" />
         </el-form-item>
+        <el-form-item label="封面圖 URL" prop="coverImageUrl">
+          <el-input
+            v-model="form.coverImageUrl"
+            maxlength="500"
+            placeholder="https://… 留空則自動生成海報"
+            clearable
+          />
+          <div class="field-hint">留空時前台顯示自動生成的海報;填入後即時預覽,所見即所得。</div>
+        </el-form-item>
+        <el-form-item label="預覽">
+          <div class="cover-preview">
+            <img
+              v-if="showCoverImage"
+              :src="form.coverImageUrl"
+              class="cover-preview__img"
+              alt="封面預覽"
+              @error="coverLoadError = true"
+            />
+            <GenerativePoster
+              v-else
+              :title="form.title || '活動標題'"
+              :venue="form.venue"
+              :event-time="previewEventTime"
+              variant="poster"
+            />
+          </div>
+          <div v-if="coverLoadError" class="field-hint field-hint--warn">
+            圖片載入失敗,前台將改用自動生成海報。
+          </div>
+        </el-form-item>
         <el-form-item label="演出時間" prop="eventTime">
           <el-date-picker
             v-model="form.eventTime"
@@ -238,5 +296,23 @@ function goTicketTypes(row: EventAdmin) {
   color: var(--el-text-color-secondary);
   font-size: 12px;
   margin-top: 4px;
+}
+
+.field-hint--warn {
+  color: var(--el-color-warning);
+}
+
+.cover-preview {
+  width: 180px;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  border: 1px solid var(--el-border-color-light);
+}
+
+.cover-preview__img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
 }
 </style>
