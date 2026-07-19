@@ -63,6 +63,19 @@ const payRemainMs = computed(() =>
   order.value ? Date.parse(order.value.expireAt) - now.value : 0,
 )
 
+/** 付款總時窗(expireAt - createdAt),供倒數條計算進度百分比。 */
+const payTotalMs = computed(() =>
+  order.value ? Date.parse(order.value.expireAt) - Date.parse(order.value.createdAt) : 0,
+)
+const payProgress = computed(() =>
+  payTotalMs.value > 0 ? Math.max(0, Math.min(100, (payRemainMs.value / payTotalMs.value) * 100)) : 0,
+)
+/** 剩餘不足 3 分鐘轉為 danger 視覺,提醒盡快付款。 */
+const payUrgent = computed(() => payRemainMs.value > 0 && payRemainMs.value < 3 * 60 * 1000)
+const showPayBar = computed(
+  () => order.value?.status === 'PENDING_PAYMENT' && payRemainMs.value > 0,
+)
+
 const statusMeta: Record<OrderStatus, { label: string; tag: 'warning' | 'success' | 'info' | 'danger' }> = {
   PENDING_PAYMENT: { label: '待付款', tag: 'warning' },
   PAID: { label: '已付款', tag: 'success' },
@@ -104,6 +117,17 @@ async function onPay() {
     </el-result>
 
     <template v-else-if="order">
+      <!-- 付款倒數條:待付款時常駐頂部,<3 分鐘轉 danger -->
+      <div v-if="showPayBar" class="pay-bar" :class="{ 'is-urgent': payUrgent }">
+        <div class="pay-bar__head">
+          <span class="pay-bar__label">{{ payUrgent ? '⚠️ 付款即將逾期' : '請於期限內完成付款' }}</span>
+          <span class="pay-bar__time tabular-nums">{{ formatDuration(payRemainMs) }}</span>
+        </div>
+        <div class="pay-bar__track">
+          <div class="pay-bar__fill" :style="{ width: payProgress + '%' }"></div>
+        </div>
+      </div>
+
       <el-page-header content="訂單詳情" @back="router.push('/orders')" />
 
       <el-card class="detail-card">
@@ -165,5 +189,68 @@ async function onPay() {
 
 .pay-expired {
   color: var(--el-color-danger);
+}
+
+/* ---------- 付款倒數條 ---------- */
+.pay-bar {
+  position: sticky;
+  top: calc(var(--header-height) + 8px);
+  z-index: 10;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-warning) 12%, var(--bg-surface));
+  border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
+}
+
+.pay-bar.is-urgent {
+  background: color-mix(in srgb, var(--color-danger) 14%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--color-danger) 36%, transparent);
+}
+
+.pay-bar__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.pay-bar__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.pay-bar.is-urgent .pay-bar__label {
+  color: var(--color-danger);
+}
+
+.pay-bar__time {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--color-warning);
+}
+
+.pay-bar.is-urgent .pay-bar__time {
+  color: var(--color-danger);
+}
+
+.pay-bar__track {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--el-fill-color);
+  overflow: hidden;
+}
+
+.pay-bar__fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--color-warning);
+  transition: width 1s linear;
+}
+
+.pay-bar.is-urgent .pay-bar__fill {
+  background: var(--color-danger);
 }
 </style>
