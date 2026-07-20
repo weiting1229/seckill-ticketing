@@ -330,6 +330,11 @@ function onLoginFromDrawer() {
   color: var(--brand-primary-hover);
 }
 
+/* 深色主題下 footer-bg 較暗,brand-primary 原色對比僅 ~4.42:1,略混白提升到 5.6:1 通過 WCAG AA */
+html.dark .app-footer .footer-link {
+  color: color-mix(in srgb, var(--brand-primary) 85%, white);
+}
+
 /* ---------- 平板/手機(<1024px):橫向選單+使用者區收進 drawer,改用 hamburger ---------- */
 @media (max-width: 1023px) {
   .app-nav,
