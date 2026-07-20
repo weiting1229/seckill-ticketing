@@ -53,6 +53,8 @@ const form = reactive<{
   description: string
   venue: string
   coverImageUrl: string
+  featured: boolean
+  featuredOrder: number | null
   eventTime: Date | null
   status: EventStatus
 }>({
@@ -60,6 +62,8 @@ const form = reactive<{
   description: '',
   venue: '',
   coverImageUrl: '',
+  featured: false,
+  featuredOrder: null,
   eventTime: null,
   status: 'DRAFT',
 })
@@ -96,6 +100,8 @@ function openCreate() {
     description: '',
     venue: '',
     coverImageUrl: '',
+    featured: false,
+    featuredOrder: null,
     eventTime: null,
     status: 'DRAFT',
   })
@@ -110,6 +116,8 @@ function openEdit(row: EventAdmin) {
     description: row.description ?? '',
     venue: row.venue ?? '',
     coverImageUrl: row.coverImageUrl ?? '',
+    featured: row.featured,
+    featuredOrder: row.featuredOrder,
     eventTime: new Date(row.eventTime),
     status: row.status,
   })
@@ -123,6 +131,8 @@ async function onSubmit() {
     description: form.description || null,
     venue: form.venue || null,
     coverImageUrl: form.coverImageUrl.trim() || null,
+    featured: form.featured,
+    featuredOrder: form.featured ? form.featuredOrder : null,
     eventTime: form.eventTime!.toISOString(),
   }
   submitting.value = true
@@ -175,6 +185,12 @@ function goTicketTypes(row: EventAdmin) {
     <el-table :data="rows" row-key="id">
       <el-table-column label="ID" prop="id" min-width="170" />
       <el-table-column label="標題" prop="title" min-width="180" />
+      <el-table-column label="首頁輪播" width="110">
+        <template #default="{ row }">
+          <el-tag v-if="row.featured" type="success">#{{ row.featuredOrder ?? '—' }}</el-tag>
+          <span v-else>—</span>
+        </template>
+      </el-table-column>
       <el-table-column label="場地" prop="venue" min-width="140" />
       <el-table-column label="演出時間" width="180">
         <template #default="{ row }">{{ formatDateTime(row.eventTime) }}</template>
@@ -243,12 +259,26 @@ function goTicketTypes(row: EventAdmin) {
               :title="form.title || '活動標題'"
               :venue="form.venue"
               :event-time="previewEventTime"
-              variant="poster"
+              variant="landscape"
             />
           </div>
           <div v-if="coverLoadError" class="field-hint field-hint--warn">
             圖片載入失敗,前台將改用自動生成海報。
           </div>
+        </el-form-item>
+        <el-form-item label="首頁輪播">
+          <div>
+            <el-switch v-model="form.featured" />
+            <div class="field-hint">只有已發布活動會顯示於公開輪播。</div>
+          </div>
+        </el-form-item>
+        <el-form-item label="輪播排序">
+          <el-input-number
+            v-model="form.featuredOrder"
+            :min="0"
+            :disabled="!form.featured"
+            placeholder="數字越小越前面"
+          />
         </el-form-item>
         <el-form-item label="演出時間" prop="eventTime">
           <el-date-picker
@@ -312,7 +342,8 @@ function goTicketTypes(row: EventAdmin) {
 .cover-preview__img {
   display: block;
   width: 100%;
-  aspect-ratio: 3 / 4;
-  object-fit: cover;
+  aspect-ratio: 3 / 2;
+  object-fit: contain;
+  background: #090d17;
 }
 </style>

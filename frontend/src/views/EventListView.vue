@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { listEvents } from '@/api/events'
+import { listEvents, listFeaturedEvents } from '@/api/events'
 import type { EventSummary } from '@/api/types'
 import { formatDateTime } from '@/utils/datetime'
 import GenerativePoster from '@/components/GenerativePoster.vue'
+import FeaturedEventCarousel from '@/components/FeaturedEventCarousel.vue'
 
 const loading = ref(false)
 const items = ref<EventSummary[]>([])
+const featuredItems = ref<EventSummary[]>([])
 const page = ref(1)
 const size = ref(12)
 const total = ref(0)
@@ -31,7 +33,18 @@ async function load() {
   }
 }
 
-onMounted(load)
+async function loadFeatured() {
+  try {
+    featuredItems.value = await listFeaturedEvents(6)
+  } catch {
+    featuredItems.value = []
+  }
+}
+
+onMounted(() => {
+  load()
+  loadFeatured()
+})
 
 // 搜尋:debounce 300ms,變更即回到第一頁(不引入 @vueuse)
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
@@ -83,6 +96,8 @@ const skeletonCount = 8
 
 <template>
   <div class="events">
+    <FeaturedEventCarousel :items="featuredItems" />
+
     <!-- Hero:一行標語 + 漸層背景 + 搜尋,不搶活動風頭 -->
     <section class="hero">
       <div class="hero__inner">
@@ -156,7 +171,7 @@ const skeletonCount = 8
           <GenerativePoster
             v-else
             :title="event.title"
-            variant="poster"
+            variant="landscape"
             :show-label="false"
           />
           <span v-if="dateBadge(event.eventTime)" class="badge badge--date tabular-nums">
@@ -193,8 +208,8 @@ const skeletonCount = 8
 
 /* ---------- Hero ---------- */
 .hero {
-  margin: -20px -20px 24px;
-  padding: 40px 20px 32px;
+  margin: 0 -20px 24px;
+  padding: 24px 20px 22px;
   background:
     radial-gradient(120% 100% at 50% 0%, color-mix(in srgb, var(--brand-primary) 20%, transparent), transparent 70%),
     linear-gradient(180deg, color-mix(in srgb, var(--brand-accent) 8%, transparent), transparent);
@@ -215,7 +230,7 @@ const skeletonCount = 8
 }
 
 .hero__sub {
-  margin: 8px 0 20px;
+  margin: 6px 0 14px;
   color: var(--text-secondary);
   font-size: 15px;
 }
@@ -278,14 +293,14 @@ const skeletonCount = 8
 
 .card__poster {
   position: relative;
-  aspect-ratio: 3 / 4;
-  background: var(--bg-base);
+  aspect-ratio: 3 / 2;
+  background: #090d17;
 }
 
 .card__img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
 }
 

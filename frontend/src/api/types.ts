@@ -130,6 +130,8 @@ export interface EventAdmin {
   description: string | null
   venue: string | null
   coverImageUrl: string | null
+  featured: boolean
+  featuredOrder: number | null
   eventTime: string
   status: EventStatus
   createdAt: string
@@ -177,6 +179,8 @@ export interface EventUpsertRequest {
   venue: string | null
   /** 封面圖 URL;空字串或 null 表示清空(後端正規化為 null)。 */
   coverImageUrl: string | null
+  featured: boolean
+  featuredOrder: number | null
   eventTime: string
   /** 僅更新(PUT)時需要;建立一律 DRAFT,不由入參指定。 */
   status?: EventStatus

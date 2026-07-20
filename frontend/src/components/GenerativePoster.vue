@@ -16,7 +16,7 @@ const props = withDefaults(
     /** ISO-8601(UTC);顯示為日期 */
     eventTime?: string
     /** poster = 3:4 直式;banner = 21:9 橫式 hero */
-    variant?: 'poster' | 'banner'
+    variant?: 'poster' | 'banner' | 'landscape'
     /** 是否在海報上疊字(團名/副標/日期場地);列表卡片用純藝術時設 false */
     showLabel?: boolean
   }>(),
@@ -26,7 +26,11 @@ const props = withDefaults(
 const uid = useId()
 
 const dims = computed(() =>
-  props.variant === 'banner' ? { w: 1260, h: 540 } : { w: 600, h: 800 },
+  props.variant === 'banner'
+    ? { w: 1260, h: 540 }
+    : props.variant === 'landscape'
+      ? { w: 900, h: 600 }
+      : { w: 600, h: 800 },
 )
 
 /** 依 title 推導的構圖幾何(已縮放到 viewBox 座標)。 */
@@ -184,6 +188,10 @@ const glowId = computed(() => `gl-${uid}`)
   aspect-ratio: 21 / 9;
 }
 
+.poster--landscape {
+  aspect-ratio: 3 / 2;
+}
+
 .poster__art {
   position: absolute;
   inset: 0;
@@ -250,26 +258,31 @@ const glowId = computed(() => `gl-${uid}`)
 }
 
 /* banner 橫式:字級改以高度為基準,避免過寬時字太大 */
-.poster--banner .poster__text {
+.poster--banner .poster__text,
+.poster--landscape .poster__text {
   inset: auto 0 0 0;
   padding: 5cqmin 6cqmin;
 }
 
-.poster--banner .poster__title {
+.poster--banner .poster__title,
+.poster--landscape .poster__title {
   font-size: 12cqmin;
   -webkit-line-clamp: 1;
   line-clamp: 1;
 }
 
-.poster--banner .poster__eyebrow {
+.poster--banner .poster__eyebrow,
+.poster--landscape .poster__eyebrow {
   font-size: 4.5cqmin;
 }
 
-.poster--banner .poster__subtitle {
+.poster--banner .poster__subtitle,
+.poster--landscape .poster__subtitle {
   font-size: 5cqmin;
 }
 
-.poster--banner .poster__venue {
+.poster--banner .poster__venue,
+.poster--landscape .poster__venue {
   font-size: 4.5cqmin;
 }
 </style>
