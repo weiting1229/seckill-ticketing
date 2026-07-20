@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
@@ -22,6 +22,18 @@ async function onLogout() {
   await auth.logout()
   ElMessage.success('已登出')
   router.push('/events')
+}
+
+// ---------- 行動版導覽(<1024px 收合為 hamburger + drawer) ----------
+const drawerOpen = ref(false)
+// 路由切換後自動收起 drawer(選單項本身也會 @select 關閉,這裡再保底處理瀏覽器返回等情境)
+watch(() => route.fullPath, () => {
+  drawerOpen.value = false
+})
+
+async function onLogoutFromDrawer() {
+  drawerOpen.value = false
+  await onLogout()
 }
 </script>
 
@@ -72,8 +84,55 @@ async function onLogout() {
             登入 / 註冊
           </el-button>
         </div>
+        <button
+          type="button"
+          class="hamburger-btn"
+          aria-label="開啟導覽選單"
+          aria-haspopup="true"
+          :aria-expanded="drawerOpen"
+          @click="drawerOpen = true"
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M3 6h18a1 1 0 1 0 0-2H3a1 1 0 0 0 0 2Zm0 7h18a1 1 0 1 0 0-2H3a1 1 0 0 0 0 2Zm0 7h18a1 1 0 1 0 0-2H3a1 1 0 0 0 0 2Z"
+            />
+          </svg>
+        </button>
       </div>
     </el-header>
+
+    <el-drawer
+      v-model="drawerOpen"
+      direction="rtl"
+      size="min(80vw, 300px)"
+      title="導覽選單"
+      class="mobile-drawer"
+    >
+      <el-menu :default-active="activeMenu" router class="drawer-menu" @select="drawerOpen = false">
+        <el-menu-item index="/events">活動</el-menu-item>
+        <el-menu-item v-if="auth.isLoggedIn" index="/orders">我的訂單</el-menu-item>
+        <el-menu-item v-if="auth.isAdmin" index="/admin/events">活動管理</el-menu-item>
+        <el-menu-item v-if="auth.isAdmin" index="/admin/ticket-types">票種管理</el-menu-item>
+      </el-menu>
+      <div class="drawer-footer">
+        <el-button v-if="auth.isLoggedIn" class="drawer-logout" @click="onLogoutFromDrawer">
+          登出({{ auth.user?.username ?? '使用者' }})
+        </el-button>
+        <el-button
+          v-else
+          type="primary"
+          class="drawer-logout"
+          @click="
+            drawerOpen = false
+            router.push({ path: '/login', query: { redirect: route.fullPath } })
+          "
+        >
+          登入 / 註冊
+        </el-button>
+      </div>
+    </el-drawer>
+
     <el-main class="app-main">
       <RouterView />
     </el-main>
@@ -195,6 +254,41 @@ async function onLogout() {
   outline: none;
 }
 
+/* ---------- Hamburger(僅 <1024px 顯示) ---------- */
+.hamburger-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--el-border-color);
+  border-radius: var(--radius-control);
+  background: var(--el-fill-color-light);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.hamburger-btn:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+/* ---------- Drawer 選單 ---------- */
+.drawer-menu {
+  border-right: none;
+  --el-menu-bg-color: transparent;
+}
+
+.drawer-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--hairline);
+}
+
+.drawer-logout {
+  width: 100%;
+}
+
 .app-main {
   max-width: var(--content-max);
   width: 100%;
@@ -236,6 +330,18 @@ async function onLogout() {
 
 .footer-link:hover {
   color: var(--brand-primary-hover);
+}
+
+/* ---------- 平板/手機(<1024px):橫向選單+使用者區收進 drawer,改用 hamburger ---------- */
+@media (max-width: 1023px) {
+  .app-nav,
+  .user-area {
+    display: none;
+  }
+
+  .hamburger-btn {
+    display: inline-flex;
+  }
 }
 
 @media (max-width: 639px) {

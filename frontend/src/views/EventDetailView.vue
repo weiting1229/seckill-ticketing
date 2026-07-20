@@ -521,8 +521,8 @@ const primarySold = computed(() =>
   }
 }
 
-/* ---------- 手機:購票面板改底部固定列 ---------- */
-@media (max-width: 899px) {
+/* ---------- 手機/平板:購票面板改底部固定列(統一斷點:<1024px,對齊 §5 M7 規格) ---------- */
+@media (max-width: 1023px) {
   .detail__body {
     grid-template-columns: 1fr;
     gap: 20px;
