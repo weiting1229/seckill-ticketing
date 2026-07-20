@@ -182,6 +182,20 @@ async function onPay() {
   gap: 12px;
 }
 
+.actions :deep(.el-button) {
+  min-height: 44px;
+}
+
+@media (max-width: 639px) {
+  .actions {
+    flex-direction: column;
+  }
+
+  .actions :deep(.el-button) {
+    width: 100%;
+  }
+}
+
 .pay-countdown {
   color: var(--el-color-warning);
   font-variant-numeric: tabular-nums;

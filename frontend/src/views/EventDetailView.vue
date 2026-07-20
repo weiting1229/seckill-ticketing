@@ -498,6 +498,7 @@ const primarySold = computed(() =>
 
 .buy-panel__cta {
   width: 100%;
+  min-height: 44px;
 }
 
 .buy-panel__idle-text {

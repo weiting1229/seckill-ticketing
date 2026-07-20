@@ -292,6 +292,7 @@ async function onRegister() {
 
 .submit-btn {
   width: 100%;
+  min-height: 44px;
   margin-top: 8px;
 }
 </style>

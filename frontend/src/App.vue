@@ -287,6 +287,7 @@ async function onLogoutFromDrawer() {
 
 .drawer-logout {
   width: 100%;
+  min-height: 44px;
 }
 
 .app-main {
@@ -341,6 +342,13 @@ async function onLogoutFromDrawer() {
 
   .hamburger-btn {
     display: inline-flex;
+  }
+
+  /* 觸控目標 ≥44×44px */
+  .theme-toggle,
+  .hamburger-btn {
+    width: 44px;
+    height: 44px;
   }
 }
 
