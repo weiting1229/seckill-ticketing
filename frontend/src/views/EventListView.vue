@@ -49,10 +49,12 @@ function onSearchEnter() {
   load()
 }
 
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
 function onPageChange(p: number) {
   page.value = p
   load()
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+  window.scrollTo({ top: 0, behavior: prefersReducedMotion ? 'auto' : 'smooth' })
 }
 
 function showCover(event: EventSummary): boolean {
@@ -104,6 +106,9 @@ const skeletonCount = 8
       </div>
     </section>
 
+    <!-- 卡片標題為 h3,補一個視覺隱藏的 h2 維持標題層級遞增(h1 hero → h2 → h3 卡片) -->
+    <h2 class="sr-only">活動列表</h2>
+
     <!-- 載入中:海報形狀 skeleton -->
     <div v-if="loading" class="grid" aria-hidden="true">
       <div v-for="n in skeletonCount" :key="n" class="card card--skeleton">
@@ -138,7 +143,6 @@ const skeletonCount = 8
         :key="event.id"
         :to="`/events/${event.id}`"
         class="card"
-        :aria-label="event.title"
       >
         <div class="card__poster">
           <img
@@ -307,7 +311,8 @@ const skeletonCount = 8
 }
 
 .badge--status[data-kind='upcoming'] {
-  background: color-mix(in srgb, var(--color-success) 88%, black);
+  /* 60% 而非原 88%,讓背景夠深以符合白字 WCAG AA(4.5:1;60% 混黑約 5.7:1) */
+  background: color-mix(in srgb, var(--color-success) 60%, black);
   color: #fff;
 }
 

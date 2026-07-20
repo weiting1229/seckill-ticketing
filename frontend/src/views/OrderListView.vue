@@ -286,6 +286,7 @@ function payCountdown(order: OrderResponse): string {
 
   .ord__action :deep(.el-button) {
     width: 100%;
+    min-height: 44px;
   }
 }
 </style>

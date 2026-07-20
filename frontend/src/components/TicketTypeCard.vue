@@ -219,6 +219,7 @@ function priceText(price: string | number): string {
 
 .tt__buy {
   min-width: 116px;
+  min-height: 44px;
 }
 
 /* 售罄:整列灰化 + 斜向印章 */
