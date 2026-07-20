@@ -35,6 +35,11 @@ async function onLogoutFromDrawer() {
   drawerOpen.value = false
   await onLogout()
 }
+
+function onLoginFromDrawer() {
+  drawerOpen.value = false
+  router.push({ path: '/login', query: { redirect: route.fullPath } })
+}
 </script>
 
 <template>
@@ -119,15 +124,7 @@ async function onLogoutFromDrawer() {
         <el-button v-if="auth.isLoggedIn" class="drawer-logout" @click="onLogoutFromDrawer">
           登出({{ auth.user?.username ?? '使用者' }})
         </el-button>
-        <el-button
-          v-else
-          type="primary"
-          class="drawer-logout"
-          @click="
-            drawerOpen = false
-            router.push({ path: '/login', query: { redirect: route.fullPath } })
-          "
-        >
+        <el-button v-else type="primary" class="drawer-logout" @click="onLoginFromDrawer">
           登入 / 註冊
         </el-button>
       </div>
