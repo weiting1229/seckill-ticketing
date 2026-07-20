@@ -1,9 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 /**
  * 大型倒數看板(翻牌式大數字)。純呈現:由父層以 serverClock 校準後的 ms 傳入,
  * 本元件不自行計時,避免多個時間源。ms <= 0 時顯示歸零。
+ *
+ * 無障礙取捨:視覺翻牌數字每秒變動,若直接對整塊套 aria-live 會讓螢幕
+ * 閱讀器每秒重複播報而難以使用,因此視覺區塊改為 aria-hidden,另外用
+ * 一個畫面外的 aria-live="polite" 播報區,以較粗的粒度更新(平時每 30
+ * 秒一次、剩餘 ≤60 秒時每 10 秒一次、歸零時立即播報一次)。
  */
 const props = withDefaults(
   defineProps<{
@@ -32,12 +37,45 @@ const parts = computed(() => {
   if (days > 0) cells.unshift({ value: String(days), unit: '天' })
   return cells
 })
+
+const totalSeconds = computed(() => Math.max(0, Math.floor(props.ms / 1000)))
+
+function announceOf(sec: number): string {
+  const prefix = props.label ? `${props.label}` : '倒數'
+  if (sec <= 0) return `${prefix}已到`
+  const days = Math.floor(sec / 86400)
+  const hours = Math.floor((sec % 86400) / 3600)
+  const minutes = Math.floor((sec % 3600) / 60)
+  const seconds = sec % 60
+  const bits: string[] = []
+  if (days > 0) bits.push(`${days} 天`)
+  if (days > 0 || hours > 0) bits.push(`${hours} 時`)
+  bits.push(`${minutes} 分`)
+  bits.push(`${seconds} 秒`)
+  return `${prefix}剩餘 ${bits.join('')}`
+}
+
+const announceText = ref('')
+let lastAnnouncedSecond = -1
+
+watch(
+  totalSeconds,
+  (sec) => {
+    const dueToInterval =
+      lastAnnouncedSecond === -1 ||
+      (sec <= 60 ? lastAnnouncedSecond - sec >= 10 : lastAnnouncedSecond - sec >= 30)
+    if (!dueToInterval && sec !== 0) return
+    lastAnnouncedSecond = sec
+    announceText.value = announceOf(sec)
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
-  <div class="cd" :class="`cd--${tone}`" role="timer" aria-live="off">
+  <div class="cd" :class="`cd--${tone}`">
     <span v-if="label" class="cd__label">{{ label }}</span>
-    <div class="cd__cells tabular-nums">
+    <div class="cd__cells tabular-nums" aria-hidden="true">
       <template v-for="(c, i) in parts" :key="c.unit">
         <div class="cd__cell">
           <span class="cd__value">{{ c.value }}</span>
@@ -46,6 +84,7 @@ const parts = computed(() => {
         <span v-if="i < parts.length - 1" class="cd__sep" aria-hidden="true">:</span>
       </template>
     </div>
+    <span class="sr-only" role="status" aria-live="polite">{{ announceText }}</span>
   </div>
 </template>
 

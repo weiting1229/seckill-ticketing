@@ -49,10 +49,12 @@ function onSearchEnter() {
   load()
 }
 
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
 function onPageChange(p: number) {
   page.value = p
   load()
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+  window.scrollTo({ top: 0, behavior: prefersReducedMotion ? 'auto' : 'smooth' })
 }
 
 function showCover(event: EventSummary): boolean {

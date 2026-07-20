@@ -37,3 +37,26 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/*
+ * 全域 focus ring fallback:多數互動元素已各自定義 :focus-visible(見各元件
+ * scoped style),此規則只補上尚未客製的元素(如 Element Plus 內部未套用
+ * brand 色的角落),不影響已有樣式的優先權(scoped 選擇器權重較高)。
+ */
+:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+/* 純視覺隱藏但螢幕閱讀器可讀(供 CountdownBoard 等粗粒度播報使用) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
