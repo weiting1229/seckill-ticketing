@@ -123,6 +123,13 @@ public class EventService {
     }
 
     /** 公開活動詳情:僅 PUBLISHED 可見(未發布視同不存在,避免洩漏草稿)。 */
+    public List<EventSummaryResponse> listFeatured(int limit) {
+        int safeLimit = Math.min(Math.max(limit, 1), 12);
+        return eventMapper.findFeaturedPublished(safeLimit).stream()
+                .map(EventSummaryResponse::from)
+                .toList();
+    }
+
     public EventDetailResponse getPublishedDetail(long id) {
         Event event = eventMapper.findById(id);
         if (event == null || event.getStatus() != EventStatus.PUBLISHED) {

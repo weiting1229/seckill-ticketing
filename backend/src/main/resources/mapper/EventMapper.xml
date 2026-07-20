@@ -58,6 +58,15 @@
         <include refid="publishedFilter"/>
     </select>
 
+    <select id="findFeaturedPublished" resultType="com.seckill.event.domain.Event">
+        SELECT <include refid="cols"/>
+        FROM events
+        WHERE status = 'PUBLISHED'
+          AND featured = TRUE
+        ORDER BY featured_order ASC NULLS LAST, event_time ASC, id ASC
+        LIMIT #{limit}
+    </select>
+
     <select id="findPage" resultType="com.seckill.event.domain.Event">
         SELECT <include refid="cols"/>
         FROM events
