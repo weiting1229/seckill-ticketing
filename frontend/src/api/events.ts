@@ -15,6 +15,15 @@ export function listEvents(
   })
 }
 
+export function listFeaturedEvents(limit = 6): Promise<EventSummary[]> {
+  return request<EventSummary[]>({
+    method: 'GET',
+    url: '/events/featured',
+    params: { limit },
+    silent: true,
+  })
+}
+
 export function getEvent(id: string): Promise<EventDetail> {
   return request<EventDetail>({ method: 'GET', url: `/events/${id}`, silent: true })
 }

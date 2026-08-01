@@ -33,6 +33,12 @@ public class EventController {
         return ApiResponse.ok(eventService.listPublished(page, size, keyword));
     }
 
+    @GetMapping("/featured")
+    public ApiResponse<java.util.List<EventSummaryResponse>> featured(
+            @RequestParam(defaultValue = "6") int limit) {
+        return ApiResponse.ok(eventService.listFeatured(limit));
+    }
+
     @GetMapping("/{id}")
     public ApiResponse<EventDetailResponse> detail(@PathVariable long id) {
         return ApiResponse.ok(eventService.getPublishedDetail(id));

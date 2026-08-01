@@ -135,6 +135,29 @@ class AdminEventFlowIT extends AbstractAdminIntegrationTest {
     }
 
     @Test
+    void carouselSettingsCanBeCreatedAndUpdated() {
+        String admin = createAdminToken();
+        Map<String, Object> body = eventBody("Featured event");
+        body.put("featured", true);
+        body.put("featuredOrder", 20);
+
+        ResponseEntity<String> response = post("/api/v1/admin/events", admin, body);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode created = json(response).path("data");
+        String eventId = created.path("id").asText();
+        assertThat(created.path("featured").asBoolean()).isTrue();
+        assertThat(created.path("featuredOrder").asInt()).isEqualTo(20);
+
+        Map<String, Object> update = eventBody("Featured event");
+        update.put("status", "DRAFT");
+        update.put("featured", false);
+        update.put("featuredOrder", 99);
+        JsonNode updated = json(put("/api/v1/admin/events/" + eventId, admin, update)).path("data");
+        assertThat(updated.path("featured").asBoolean()).isFalse();
+        assertThat(updated.path("featuredOrder").isNull()).isTrue();
+    }
+
+    @Test
     void nonHttpCoverUrlShouldReturn400() {
         String admin = createAdminToken();
         Map<String, Object> bad = eventBody("非法封面");

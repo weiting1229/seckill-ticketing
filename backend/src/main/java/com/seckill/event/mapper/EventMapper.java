@@ -24,6 +24,8 @@ public interface EventMapper {
 
     long countPublished(@Param("keyword") String keyword);
 
+    List<Event> findFeaturedPublished(@Param("limit") int limit);
+
     // --- admin:全部狀態,依建立時間新到舊,分頁 ---
     List<Event> findPage(@Param("limit") int limit, @Param("offset") int offset);
 

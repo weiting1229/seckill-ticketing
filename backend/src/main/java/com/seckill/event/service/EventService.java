@@ -55,6 +55,7 @@ public class EventService {
         event.setDescription(req.description());
         event.setVenue(req.venue());
         event.setCoverImageUrl(blankToNull(req.coverImageUrl()));
+        applyFeaturedSettings(event, req.featured(), req.featuredOrder());
         event.setEventTime(req.eventTime());
         event.setStatus(EventStatus.DRAFT);
         event.setCreatedAt(now);
@@ -89,6 +90,7 @@ public class EventService {
         event.setDescription(req.description());
         event.setVenue(req.venue());
         event.setCoverImageUrl(blankToNull(req.coverImageUrl()));
+        applyFeaturedSettings(event, req.featured(), req.featuredOrder());
         event.setEventTime(req.eventTime());
         event.setStatus(req.status());
         event.setUpdatedAt(Instant.now());
@@ -121,6 +123,13 @@ public class EventService {
     }
 
     /** 公開活動詳情:僅 PUBLISHED 可見(未發布視同不存在,避免洩漏草稿)。 */
+    public List<EventSummaryResponse> listFeatured(int limit) {
+        int safeLimit = Math.min(Math.max(limit, 1), 12);
+        return eventMapper.findFeaturedPublished(safeLimit).stream()
+                .map(EventSummaryResponse::from)
+                .toList();
+    }
+
     public EventDetailResponse getPublishedDetail(long id) {
         Event event = eventMapper.findById(id);
         if (event == null || event.getStatus() != EventStatus.PUBLISHED) {
@@ -144,6 +153,12 @@ public class EventService {
     /** 空白字串正規化為 null,使封面欄位在 DB 統一以 null 表示「未設定」。 */
     private String blankToNull(String s) {
         return (s == null || s.isBlank()) ? null : s;
+    }
+
+    private void applyFeaturedSettings(Event event, Boolean featured, Integer featuredOrder) {
+        boolean enabled = Boolean.TRUE.equals(featured);
+        event.setFeatured(enabled);
+        event.setFeaturedOrder(enabled ? featuredOrder : null);
     }
 
     private int normalizePage(int page) {

@@ -46,6 +46,18 @@ class PublicEventIT extends AbstractAdminIntegrationTest {
         put("/api/v1/admin/events/" + eventId, admin, m);
     }
 
+    private void publishFeatured(String admin, String eventId, String title, int order) {
+        Map<String, Object> m = new HashMap<>();
+        m.put("title", title);
+        m.put("description", "Featured event");
+        m.put("venue", "Taipei Dome");
+        m.put("eventTime", Instant.now().plus(20, ChronoUnit.DAYS).toString());
+        m.put("featured", true);
+        m.put("featuredOrder", order);
+        m.put("status", "PUBLISHED");
+        put("/api/v1/admin/events/" + eventId, admin, m);
+    }
+
     private String createTicketType(String admin, String eventId, int total) {
         Map<String, Object> m = new HashMap<>();
         m.put("eventId", eventId);
@@ -95,6 +107,36 @@ class PublicEventIT extends AbstractAdminIntegrationTest {
 
         // 不存在 → 404 2001
         assertThat(get("/api/v1/events/111222333", null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void featuredEndpointReturnsOnlyPublishedFeaturedEventsInConfiguredOrder() {
+        String admin = createAdminToken();
+        String later = createEvent(admin, "Featured later");
+        publishFeatured(admin, later, "Featured later", 20);
+        String first = createEvent(admin, "Featured first");
+        publishFeatured(admin, first, "Featured first", 10);
+        String ordinary = createEvent(admin, "Ordinary published");
+        publish(admin, ordinary, "Ordinary published");
+        String draft = createEvent(admin, "Featured draft");
+        Map<String, Object> draftUpdate = new HashMap<>();
+        draftUpdate.put("title", "Featured draft");
+        draftUpdate.put("description", "Featured event");
+        draftUpdate.put("venue", "Taipei Dome");
+        draftUpdate.put("eventTime", Instant.now().plus(20, ChronoUnit.DAYS).toString());
+        draftUpdate.put("featured", true);
+        draftUpdate.put("featuredOrder", 1);
+        draftUpdate.put("status", "DRAFT");
+        put("/api/v1/admin/events/" + draft, admin, draftUpdate);
+
+        ResponseEntity<String> response = get("/api/v1/events/featured?limit=6", null);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode items = json(response).path("data");
+        assertThat(items.isArray()).isTrue();
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        items.forEach(item -> ids.add(item.path("id").asText()));
+        assertThat(ids).containsSubsequence(first, later);
+        assertThat(ids).doesNotContain(ordinary, draft);
     }
 
     @Test
