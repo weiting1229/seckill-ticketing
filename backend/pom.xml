@@ -23,6 +23,8 @@
         <bucket4j.version>8.19.0</bucket4j.version>
         <jjwt.version>0.12.7</jjwt.version>
         <jacoco.version>0.8.15</jacoco.version>
+        <netty.version>4.1.136.Final</netty.version>
+        <postgresql.version>42.7.12</postgresql.version>
     </properties>
 
     <dependencies>
