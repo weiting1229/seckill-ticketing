@@ -1,5 +1,10 @@
 # 03 — UI/UX 優化計畫 M7 交接文件
 
+> ✅ **M7 已於 2026-07-19 完成並合併(狀態更新於 2026-08-13)**。本文件**僅供歷史參考**,
+> 不再是待辦清單——UI/UX 優化計畫(M1–M7)**全數完成**,以下內容維持原始撰寫時的
+> 交接指示不修改,實際完成結果與驗證紀錄見文末新增的「## 11. 完成紀錄」。
+> 若要繼續開發本專案的其他功能,**不要**依本文件的「開場指示」重新開 M7 分支或重做已完成項目。
+>
 > 給**下一個實作 session**。本文件自包含:讀完這份 + `docs/design/02-UIUX優化計畫.md` + 根目錄 `CLAUDE.md` 即可接手 M7。
 > 撰寫時間:2026-07-19。前一個 session 完成 M1–M6。
 > **注意**:本文件的 M1–M7 是 UI/UX 計畫編號,與後端建置歷程的 M0–M7(見 `docs/handover-M7.md`)無關。
@@ -42,8 +47,8 @@ feat/m6-page-reskin  8f63165  feat(frontend): M6 登入/訂單列表/404 換膚�
 | M3 活動列表改版 | ✅ 已 push | 海報網格、hero、搜尋(後端 keyword) |
 | M4 活動詳情改版 | ✅ 已 push | hero、sticky 購票面板、價格表、倒數看板、票數模糊化 |
 | M5 搶購與付款體驗 | ✅ 已 push | WaitingRoom 全頁排隊室、結果卡、付款倒數條 |
-| M6 剩餘頁面換膚 | ⚠️ **已 commit 未合併** | 登入頁品牌視覺、訂單列表卡片化、404 品牌化 |
-| **M7 行動版/無障礙/最終 QA** | ⬜ **待做(本次任務)** | 見第 4 節 |
+| M6 剩餘頁面換膚 | ✅ 已 push(main `512ef01`) | 登入頁品牌視覺、訂單列表卡片化、404 品牌化 |
+| **M7 行動版/無障礙/最終 QA** | ✅ **已完成並合併**(main `8b830eb`,PR [#1](https://github.com/weiting1229/seckill-ticketing/pull/1)) | 見第 4 節與「## 11. 完成紀錄」 |
 
 ---
 
@@ -255,3 +260,62 @@ dev DB 有前一個 session 的驗證殘留(M5「落日飛車 M5 體驗驗證」
 - 後端 M7(CD/壓測,**與本計畫無關**):`docs/handover-M7.md`、`docs/handover-M7-loadtest.md`
 - ADR:`docs/adr/0001`–`0007`
 - 正式站:https://tixco.kozow.com
+
+---
+
+## 11. 完成紀錄(2026-08-13 補記)
+
+M7 已於 2026-07-19 完成、開分支 `feat/m7-mobile-a11y-qa`、5 個子項 commit,並於
+2026-08-13 由 owner 確認建立 PR [#1](https://github.com/weiting1229/seckill-ticketing/pull/1)
+fast-forward 合併回 `main`(`8b830eb`)。分支已刪除。**UI/UX 優化計畫 M1–M7 至此全數完成**。
+
+### 完成項目對照 §4.1
+
+1. **斷點統一**:`EventDetailView` 雙欄斷點由 899px 改為 1023px,全站現統一為
+   1023px(平板)/ 639px(手機)兩個斷點,對齊 ≥1024 桌面 / 640–1023 平板 / <640
+   手機規格。
+2. **App header 行動版**:`App.vue` 新增 `<1024px` 的 hamburger 按鈕 + `el-drawer`,
+   收合原本橫向 `el-menu` 與使用者區;drawer 內含導覽項目、登入/登出;路由切換時
+   自動關閉。
+3. **觸控目標 ≥44px**:搶購 CTA(`TicketTypeCard.tt__buy`、`EventDetailView`
+   `.buy-panel__cta`)、`theme-toggle`/`hamburger-btn`、訂單列表與訂單詳情操作鈕、
+   登入/註冊送出鈕,行動裝置寬度下皆補到 ≥44px。
+4. **無障礙**:
+   - `main.css` 加全域 `:focus-visible` fallback(brand 色)與 `.sr-only` 工具類。
+   - `CountdownBoard.vue`:視覺翻牌數字改 `aria-hidden="true"`,另加畫面外
+     `aria-live="polite"` 播報區,粗粒度更新(平時 30 秒、剩餘 ≤60 秒時 10 秒、
+     歸零立即播報)——**設計取捨**:避免逐秒播報造成螢幕閱讀器噪音干擾,細節見
+     `CountdownBoard.vue` 內註解。
+   - 圖片 alt 抽查通過(列表卡/詳情 hero/admin 預覽三處皆有描述性 alt)。
+5. **`prefers-reduced-motion`**:既有全站規則維持有效;另修正 `EventListView`
+   分頁換頁的 `scrollTo` 未尊重此偏好的缺口,改為依 `matchMedia` 動態決定
+   `smooth`/`auto`。
+6. **最終 QA**:
+   - `pnpm type-check` / `pnpm ci:lint` / `pnpm test` 全綠。
+   - 瀏覽器實測雙主題 × 三斷點(375 / 768 / 1280),含 hamburger drawer 開合、
+     `CountdownBoard` aria-live 播報文字、桌面 sticky 面板 vs 手機底部固定列切換,
+     皆行為正確。
+   - 依 Lighthouse mobile 稽核另追加 2 個 commit(`5159e64` 修正 drawer 登入按鈕
+     模板解析錯誤、`78919a1` 修正對比度與標題層級),`/events` 頁 Accessibility
+     分數提升至 100。
+   - **已知限制**:Lighthouse Performance 未達 §4.3 訂的 85(主因 Element Plus
+     全量引入的大 chunk,屬既有架構,改善需新增建置依賴如 bundle splitting/CDN,
+     未經 owner 核准新依賴,故未處理);活動詳情頁 CLS 偏高待後續剖析。此二項
+     owner 已知悉,不視為 M7 未完成。
+
+### 2026-08-13 複查驗證(本次 session)
+
+- 確認 `main` 分支程式碼與上述 commit 內容一致(`git log` 核對 `9f66f8b`
+  `9ee137f` `3bf26c9` `5159e64` `78919a1`,已合併於 `8b830eb`)。
+- 啟動中介軟體(Postgres/Redis/RabbitMQ)+ 後端(dev profile)+ 前端 dev server,
+  瀏覽器實測:
+  - 手機寬度(375px):`.app-nav` 隱藏、hamburger 顯示且 44×44px、點擊開啟 drawer
+    顯示導覽項目與登入/註冊鈕。
+  - 活動詳情頁(建立臨時測試活動觸發 upcoming phase):`CountdownBoard` 視覺區
+    `aria-hidden="true"`、畫面外播報區文字正確(如「距開賣剩餘 0 分21 秒」)、
+    手機底部固定購票列 CTA 高度 44px。
+  - 桌面寬度(1280px):橫向選單顯示、hamburger 隱藏、購票面板為 `sticky`
+    (非 fixed)。
+  - `pnpm type-check` / `ci:lint` / `test`(21 例,含後續 home-carousel 功能新增
+    的測試)全綠。
+- 結論:**M7 各項驗收標準複查通過,狀態確認為已完成**。
