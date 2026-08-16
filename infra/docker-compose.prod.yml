@@ -107,7 +107,7 @@ services:
     restart: unless-stopped
 
   # ==========================================================================
-  # 中介軟體(皆不對外開 port)
+  # 中介軟體(redis/rabbitmq 皆不對外開 port;postgres 見下方唯一例外)
   # ==========================================================================
   postgres:
     image: postgres:17
@@ -116,6 +116,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?請設定 POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER:?請設定 POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?請設定 POSTGRES_PASSWORD}
+    ports:
+      # 只綁 loopback,比照下方 prometheus/grafana 的既有模式:經 SSH tunnel 用
+      # DBeaver 等工具連,不對網際網路暴露。
+      #   ssh -L 5432:localhost:5432 <user>@<host>
+      # 然後 DBeaver 連 localhost:5432(或用 DBeaver 內建 SSH tunnel 分頁連 127.0.0.1:5432)
+      - "127.0.0.1:5432:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
     healthcheck:
