@@ -69,6 +69,12 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
         <dependency>
+            <!-- 啟用 spring.data.redis.lettuce.pool.* 需要這個套件在 classpath 上,
+                 否則 Spring Boot 不會套用 LettucePoolingClientConfiguration -->
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-pool2</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
