@@ -1,0 +1,37 @@
+# 個人開發輔助 GUI 工具(非應用程式依賴、非專案審查過的可觀測性設定)。
+#
+# 跟 docker-compose.dev.yml / docker-compose.prod.yml 分開放的原因:Postgres/Redis/RabbitMQ 是
+# backend 的硬性依賴,Prometheus/Grafana 是設計文件明確規劃的產品功能(M6,掛了審查過的
+# dashboard/alert-rules 設定)——這兩類都不合適跟「單純圖個方便的第三方 GUI 工具」混在同一份
+# 定義檔。這裡的服務可以隨時增減、替換成任何人喜歡的替代工具,不影響前兩者。
+#
+# 本機使用(接 docker-compose.dev.yml 的網路,免另外設環境變數):
+#   docker compose -f infra/docker-compose.tools.yml up -d
+#
+# OCI 使用(接 docker-compose.prod.yml 的網路,由 cd.yml 部署時自動帶入):
+#   SECKILL_NETWORK_NAME=seckill_default docker compose -f docker-compose.tools.yml up -d
+#
+# 兩邊的 Redis/RabbitMQ container 剛好都叫 seckill-redis/seckill-rabbitmq,連線設定不用因
+# 環境而改。RedisInsight 的網頁埠只綁 loopback,比照 Prometheus/Grafana/Postgres 既有模式,
+# 要看需先 SSH tunnel(OCI 端)。
+name: seckill-tools
+
+services:
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: seckill-redisinsight
+    ports:
+      - "127.0.0.1:5540:5540"
+    volumes:
+      - redisinsight-data:/data
+    networks:
+      - target
+    restart: unless-stopped
+
+networks:
+  target:
+    external: true
+    name: ${SECKILL_NETWORK_NAME:-seckill-dev_default}
+
+volumes:
+  redisinsight-data:

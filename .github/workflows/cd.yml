@@ -192,6 +192,11 @@ jobs:
           # 清掉被新版取代的舊映像,避免磁碟隨部署累積
           $SSH "$HOST" 'docker image prune -f'
 
+          # 個人開發輔助 GUI 工具(docker-compose.tools.yml,見該檔案說明)。
+          # SECKILL_NETWORK_NAME 接上方 docker-compose.prod.yml 的預設網路(專案名 seckill
+          # 由 /opt/seckill 目錄名推得,未顯式命名);main compose 已先 up 過,網路必定已存在。
+          $SSH "$HOST" 'cd /opt/seckill && SECKILL_NETWORK_NAME=seckill_default docker compose -f docker-compose.tools.yml up -d'
+
       # Smoke test(設計第 12 節第 4 步):內網 /actuator/health 與前端首頁,非 200 即失敗
       - name: Smoke test
         env:

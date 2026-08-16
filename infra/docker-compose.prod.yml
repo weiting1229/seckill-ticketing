@@ -107,7 +107,7 @@ services:
     restart: unless-stopped
 
   # ==========================================================================
-  # 中介軟體(redis/rabbitmq 皆不對外開 port;postgres 見下方唯一例外)
+  # 中介軟體(redis 不對外開 port;postgres/rabbitmq 開 loopback,見各自區塊說明)
   # ==========================================================================
   postgres:
     image: postgres:17
@@ -153,6 +153,10 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?請設定 RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?請設定 RABBITMQ_PASSWORD}
+    ports:
+      # 只綁 loopback,比照 postgres/prometheus/grafana 既有模式:經 SSH tunnel 看
+      # management UI,不對網際網路暴露。AMQP(5672)不對外開,backend 走內網連線即可。
+      - "127.0.0.1:15672:15672"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
       - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
