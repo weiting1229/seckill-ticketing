@@ -193,9 +193,16 @@ jobs:
           $SSH "$HOST" 'docker image prune -f'
 
           # 個人開發輔助 GUI 工具(docker-compose.tools.yml,見該檔案說明)。
-          # SECKILL_NETWORK_NAME 接上方 docker-compose.prod.yml 的預設網路(專案名 seckill
-          # 由 /opt/seckill 目錄名推得,未顯式命名);main compose 已先 up 過,網路必定已存在。
-          $SSH "$HOST" 'cd /opt/seckill && SECKILL_NETWORK_NAME=seckill_default docker compose -f docker-compose.tools.yml up -d'
+          # SECKILL_NETWORK_NAME 動態查詢 docker-compose.prod.yml 實際的預設網路名稱,不寫死
+          # 猜測值——prod 的 compose project name 是 seckill-prod(非目錄名 seckill,原因未知,
+          # 已用 container label 實測確認),之後部署細節若再變,這裡不會因為寫死字串而斷掉。
+          # (原本用 --format 搭配 range $k,$v 這種 Go template 語法,$ 開頭的變數會先被外層
+          # bash 展開成空字串才送到 docker,已實測失敗;改用 index 讀 label,無 $ 變數,安全。)
+          # shellcheck disable=SC2016
+          $SSH "$HOST" '
+            PROJECT=$(docker inspect seckill-backend --format "{{index .Config.Labels \"com.docker.compose.project\"}}")
+            cd /opt/seckill && SECKILL_NETWORK_NAME="${PROJECT}_default" docker compose -f docker-compose.tools.yml up -d
+          '
 
       # Smoke test(設計第 12 節第 4 步):內網 /actuator/health 與前端首頁,非 200 即失敗
       - name: Smoke test
