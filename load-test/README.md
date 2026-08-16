@@ -53,10 +53,11 @@ k6 run load-test/scenario-b-sustained.js
 K6_WEB_DASHBOARD=true k6 run load-test/scenario-a-flash-sale.js
 ```
 
-想在測試結束後留一份 HTML 報告(適合放進 `docs/load-test-report.md` 的附件),可再加:
+想在測試結束後留一份 HTML 報告,可再加(存到 `load-test/reports/`,這個資料夾不進 repo,
+檔名務必帶時間戳避免覆蓋舊報告):
 
 ```bash
-K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_EXPORT=load-test/report-scenario-a.html k6 run load-test/scenario-a-flash-sale.js
+K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_EXPORT="load-test/reports/report-scenario-a-$(date +%Y%m%d-%H%M%S).html" k6 run load-test/scenario-a-flash-sale.js
 ```
 
 **這個面板跟現有 Prometheus + Grafana 不衝突**,兩者看的是不同層面:k6 面板是「壓測工具自己
