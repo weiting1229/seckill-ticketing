@@ -52,4 +52,17 @@ public class SeckillMetrics {
     public void recordStockRevert(String ticketTypeId) {
         registry.counter("seckill.stock.revert", "ticket_type_id", ticketTypeId).increment();
     }
+
+    /**
+     * 限流檢查(Bucket4j {@code tryConsume})端到端耗時,含 Redis 單執行緒佇列排隊等待,
+     * 不是 slowlog 那種只算 server 端執行片段。layer 例:global / user / ip / token_user。
+     */
+    public void recordRateLimitCheckDuration(String layer, long durationNanos) {
+        Timer.builder("seckill.ratelimit.check.duration")
+                .description("限流檢查(Bucket4j tryConsume)端到端耗時,含 Redis 佇列排隊等待")
+                .publishPercentileHistogram()
+                .tag("layer", layer)
+                .register(registry)
+                .record(durationNanos, TimeUnit.NANOSECONDS);
+    }
 }

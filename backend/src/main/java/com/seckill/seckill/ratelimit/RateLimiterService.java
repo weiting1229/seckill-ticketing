@@ -1,5 +1,6 @@
 package com.seckill.seckill.ratelimit;
 
+import com.seckill.common.metrics.SeckillMetrics;
 import io.github.bucket4j.BucketConfiguration;
 import io.github.bucket4j.distributed.proxy.ProxyManager;
 import java.time.Duration;
@@ -11,6 +12,10 @@ import org.springframework.stereotype.Service;
  *
  * <p>桶狀態存於 Redis(Bucket4j Lettuce),各層以不同 key 隔離;容量即每秒速率(greedy 平滑補充)。
  * 三個 {@code try*} 方法互不相干,呼叫端可依序短路檢查(任一被限流即拒絕)。
+ *
+ * <p>每次呼叫皆計時回報 {@code seckill.ratelimit.check.duration}(見 {@link SeckillMetrics}):
+ * 這段耗時是從發出呼叫到拿到回應的 wall-clock 時間,天然含 Redis 單執行緒佇列排隊等待,
+ * 跟 {@code SLOWLOG} 只記錄 server 端執行片段不同(2026-08-15 壓測長尾排查用,見 HANDOFF.md)。
  */
 @Service
 public class RateLimiterService {
@@ -21,6 +26,7 @@ public class RateLimiterService {
     private static final String TOKEN_USER_KEY_PREFIX = "seckill:rl:token:user:";
 
     private final ProxyManager<String> proxyManager;
+    private final SeckillMetrics metrics;
     private final BucketConfiguration globalConfig;
     private final BucketConfiguration userConfig;
     private final BucketConfiguration ipConfig;
@@ -28,11 +34,13 @@ public class RateLimiterService {
 
     public RateLimiterService(
             ProxyManager<String> proxyManager,
+            SeckillMetrics metrics,
             @Value("${seckill.ratelimit.global-capacity:3000}") long globalCapacity,
             @Value("${seckill.ratelimit.user-capacity:2}") long userCapacity,
             @Value("${seckill.ratelimit.ip-capacity:10}") long ipCapacity,
             @Value("${seckill.ratelimit.token-user-capacity:5}") long tokenUserCapacity) {
         this.proxyManager = proxyManager;
+        this.metrics = metrics;
         this.globalConfig = perSecond(globalCapacity);
         this.userConfig = perSecond(userCapacity);
         this.ipConfig = perSecond(ipCapacity);
@@ -48,17 +56,32 @@ public class RateLimiterService {
 
     /** 全域 QPS。true 表放行、false 表已達上限。 */
     public boolean tryGlobal() {
-        return proxyManager.getProxy(GLOBAL_KEY, () -> globalConfig).tryConsume(1);
+        long start = System.nanoTime();
+        try {
+            return proxyManager.getProxy(GLOBAL_KEY, () -> globalConfig).tryConsume(1);
+        } finally {
+            metrics.recordRateLimitCheckDuration("global", System.nanoTime() - start);
+        }
     }
 
     /** 單用戶速率。 */
     public boolean tryUser(long userId) {
-        return proxyManager.getProxy(USER_KEY_PREFIX + userId, () -> userConfig).tryConsume(1);
+        long start = System.nanoTime();
+        try {
+            return proxyManager.getProxy(USER_KEY_PREFIX + userId, () -> userConfig).tryConsume(1);
+        } finally {
+            metrics.recordRateLimitCheckDuration("user", System.nanoTime() - start);
+        }
     }
 
     /** 單 IP 速率。 */
     public boolean tryIp(String ip) {
-        return proxyManager.getProxy(IP_KEY_PREFIX + ip, () -> ipConfig).tryConsume(1);
+        long start = System.nanoTime();
+        try {
+            return proxyManager.getProxy(IP_KEY_PREFIX + ip, () -> ipConfig).tryConsume(1);
+        } finally {
+            metrics.recordRateLimitCheckDuration("ip", System.nanoTime() - start);
+        }
     }
 
     /**
@@ -66,6 +89,11 @@ public class RateLimiterService {
      * 保護 token 端點的 DB 查詢不被單一帳號狂刷,又不與單 IP 混用(避免測試共用 localhost 互擾)。
      */
     public boolean tryTokenUser(long userId) {
-        return proxyManager.getProxy(TOKEN_USER_KEY_PREFIX + userId, () -> tokenUserConfig).tryConsume(1);
+        long start = System.nanoTime();
+        try {
+            return proxyManager.getProxy(TOKEN_USER_KEY_PREFIX + userId, () -> tokenUserConfig).tryConsume(1);
+        } finally {
+            metrics.recordRateLimitCheckDuration("token_user", System.nanoTime() - start);
+        }
     }
 }
