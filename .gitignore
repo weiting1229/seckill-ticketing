@@ -33,3 +33,6 @@ Thumbs.db
 # === 日誌與暫存 ===
 logs/
 *.log
+
+# === k6 壓測 HTML 報告(本機產物,不進 repo)===
+load-test/report-*.html
