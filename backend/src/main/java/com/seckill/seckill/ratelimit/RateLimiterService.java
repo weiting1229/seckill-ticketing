@@ -31,6 +31,7 @@ public class RateLimiterService {
     private final BucketConfiguration userConfig;
     private final BucketConfiguration ipConfig;
     private final BucketConfiguration tokenUserConfig;
+    private final boolean bypassEnabled;
 
     public RateLimiterService(
             ProxyManager<String> proxyManager,
@@ -38,13 +39,15 @@ public class RateLimiterService {
             @Value("${seckill.ratelimit.global-capacity:3000}") long globalCapacity,
             @Value("${seckill.ratelimit.user-capacity:2}") long userCapacity,
             @Value("${seckill.ratelimit.ip-capacity:10}") long ipCapacity,
-            @Value("${seckill.ratelimit.token-user-capacity:5}") long tokenUserCapacity) {
+            @Value("${seckill.ratelimit.token-user-capacity:5}") long tokenUserCapacity,
+            @Value("${seckill.ratelimit.bypass-enabled:false}") boolean bypassEnabled) {
         this.proxyManager = proxyManager;
         this.metrics = metrics;
         this.globalConfig = perSecond(globalCapacity);
         this.userConfig = perSecond(userCapacity);
         this.ipConfig = perSecond(ipCapacity);
         this.tokenUserConfig = perSecond(tokenUserCapacity);
+        this.bypassEnabled = bypassEnabled;
     }
 
     /** capacity 個 token,每秒 greedy 補滿(平滑速率,避免整秒邊界爆量)。 */
@@ -56,6 +59,9 @@ public class RateLimiterService {
 
     /** 全域 QPS。true 表放行、false 表已達上限。 */
     public boolean tryGlobal() {
+        if (bypassEnabled) {
+            return true;
+        }
         long start = System.nanoTime();
         try {
             return proxyManager.getProxy(GLOBAL_KEY, () -> globalConfig).tryConsume(1);
@@ -66,6 +72,9 @@ public class RateLimiterService {
 
     /** 單用戶速率。 */
     public boolean tryUser(long userId) {
+        if (bypassEnabled) {
+            return true;
+        }
         long start = System.nanoTime();
         try {
             return proxyManager.getProxy(USER_KEY_PREFIX + userId, () -> userConfig).tryConsume(1);
@@ -76,6 +85,9 @@ public class RateLimiterService {
 
     /** 單 IP 速率。 */
     public boolean tryIp(String ip) {
+        if (bypassEnabled) {
+            return true;
+        }
         long start = System.nanoTime();
         try {
             return proxyManager.getProxy(IP_KEY_PREFIX + ip, () -> ipConfig).tryConsume(1);
@@ -89,6 +101,9 @@ public class RateLimiterService {
      * 保護 token 端點的 DB 查詢不被單一帳號狂刷,又不與單 IP 混用(避免測試共用 localhost 互擾)。
      */
     public boolean tryTokenUser(long userId) {
+        if (bypassEnabled) {
+            return true;
+        }
         long start = System.nanoTime();
         try {
             return proxyManager.getProxy(TOKEN_USER_KEY_PREFIX + userId, () -> tokenUserConfig).tryConsume(1);

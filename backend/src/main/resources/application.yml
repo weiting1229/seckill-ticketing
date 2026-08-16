@@ -100,6 +100,15 @@ spring:
     username: ${RABBITMQ_USER}
     password: ${RABBITMQ_PASSWORD}
 
+seckill:
+  ratelimit:
+    # 消融測試開關(dev-only,壓測長尾延遲排查,見 HANDOFF.md「隔離限流器自己的排隊 bug」):
+    # 開啟後 tryGlobal/tryUser/tryIp/tryTokenUser 整段跳過、不呼叫 Redis,直接放行,
+    # 用來把「限流器排隊」與「下游真實承載上限」兩件事分開測。
+    # 這個 key 只存在於 dev profile;prod profile 沒有對應設定,@Value 預設值 false 生效,
+    # 即使誤設 SECKILL_RL_BYPASS 環境變數也不會在 prod 生效。測完記得改回 false 或整段拿掉。
+    bypass-enabled: ${SECKILL_RL_BYPASS:false}
+
 ---
 # ===== prod:正式環境(容器間以 Docker 內網服務名互連,全部由環境變數注入)=====
 spring:
