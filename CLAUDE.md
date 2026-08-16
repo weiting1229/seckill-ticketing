@@ -37,6 +37,14 @@
 - 整合測試一律 Testcontainers(PostgreSQL / Redis / RabbitMQ),禁止依賴本機手動起的服務、禁止 H2 等替代品
 - 併發相關邏輯(扣庫存、狀態機、冪等)必須有多執行緒併發測試
 - 修 bug 前先寫一個能重現該 bug 的失敗測試
+- **跑後端測試一律用 `rtk mvn test` / `rtk mvn verify`**(RTK 會把輸出壓縮約 85–94%,省 context)。
+  兩個必須遵守的配套規則:
+  1. **輸出結尾沒有 `BUILD SUCCESS` 或 `BUILD FAILURE` 就當作被截斷** —— 完整的 Maven 輸出必定以此結尾。
+     此時去讀結尾 `[full output: ...]` 指的 tee 檔再判斷,**不可直接回報測試結果**。
+  2. 測試失敗時,RTK 會濾掉 assertion 的 `expected: ... but was: ...`,只留空的例外類別名。
+     需要那段細節時同樣去讀 tee 全文,不要憑殘缺訊息推論。
+- `mvn test` 只跑 surefire 單元測試(不需要 Docker);`*IT` 整合測試綁在 failsafe 的 `verify` 階段,
+  跑 `mvn verify` 才會啟動 Testcontainers,jacoco 覆蓋率報告也在該階段產生
 
 ## Git 與流程規範
 
