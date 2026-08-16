@@ -18,7 +18,7 @@ import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 /**
- * 建單消費者(設計文件第 7 節):手動 ack、消費併發 4(application.yml)。
+ * 建單消費者(設計文件第 7 節):手動 ack、消費併發彈性 4-12(application.yml)。
  *
  * <ul>
  *   <li><b>成功</b>:落庫 → 寫 {@code SUCCESS:orderId} → 發延遲取消訊息(15 分鐘後超時取消)→ ack。</li>
@@ -73,8 +73,14 @@ public class OrderCreateListener {
             channel.basicAck(deliveryTag, false);
         } catch (DuplicateKeyException e) {
             // 冪等:此 requestId(或該 user+票種)已建過訂單,直接視為已處理
-            resultCache.writeSuccess(message.requestId(), message.orderId());
-            channel.basicAck(deliveryTag, false);
+            // writeSuccess 本身若失敗(如 Redis 暫時連不上),不可讓例外從這個 catch 冒泡逃出去
+            // (同一 try 的其他 catch 接不到),否則會繞過下面的重試/DLQ 保護機制
+            try {
+                resultCache.writeSuccess(message.requestId(), message.orderId());
+                channel.basicAck(deliveryTag, false);
+            } catch (Exception writeEx) {
+                handleUnexpected(message, channel, deliveryTag, retryCount, writeEx);
+            }
         } catch (DbStockDepletedException e) {
             // DB 扣減失敗(異常訊號):回補 Redis 並標記 FAIL,不重試
             stockCache.revert(message.ticketTypeId(), message.userId());
