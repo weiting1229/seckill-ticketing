@@ -8,7 +8,7 @@
 
 import http from 'k6/http';
 import { check } from 'k6';
-import { BASE_URL, USER_PASSWORD, USER_POOL_SIZE, usernameFor, jsonHeaders } from './lib/config.js';
+import { BASE_URL, USER_PASSWORD, USER_POOL_SIZE, usernameFor, jsonHeaders, safeJson } from './lib/config.js';
 
 const SETUP_VUS = Number(__ENV.SETUP_VUS || 50);
 // 用 per-vu-iterations(而非 shared-iterations)換取「(VU, ITER) → 帳號序號」的簡單且
@@ -37,7 +37,7 @@ export default function () {
     JSON.stringify({ username, password: USER_PASSWORD }),
     jsonHeaders(null, 'register'),
   );
-  const body = res.json();
+  const body = safeJson(res);
   // code 0 = 新註冊成功;1001(USERNAME_ALREADY_EXISTS)= 重跑本腳本時的冪等成功。
   const ok = body && (body.code === 0 || body.code === 1001);
   check(res, { 'register ok or already exists': () => ok });

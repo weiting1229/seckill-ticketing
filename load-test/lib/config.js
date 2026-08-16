@@ -24,3 +24,16 @@ export function jsonHeaders(token, tagName) {
   if (tagName) params.tags = { name: tagName };
   return params;
 }
+
+// 安全解析回應 JSON。大規模壓測下偶爾會發生連線層級失敗(connection refused/timeout),
+// 此時 k6 回應物件的 body 是 null——直接呼叫 res.json() 會丟例外把整個迭代中斷,
+// 而不是像一般錯誤回應那樣回傳可判斷的物件。這裡統一防禦,失敗一律回傳 null,
+// 呼叫端既有的 `if (!body)` / `body && body.code` 判斷即可正常處理。
+export function safeJson(res, path) {
+  if (!res || res.status === 0 || res.body === null || res.body === undefined) return null;
+  try {
+    return path ? res.json(path) : res.json();
+  } catch (e) {
+    return null;
+  }
+}

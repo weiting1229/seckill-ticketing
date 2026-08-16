@@ -19,7 +19,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Counter, Trend } from 'k6/metrics';
-import { BASE_URL, ADMIN_USERNAME, ADMIN_PASSWORD, USER_PASSWORD, usernameFor, jsonHeaders } from './lib/config.js';
+import { BASE_URL, ADMIN_USERNAME, ADMIN_PASSWORD, USER_PASSWORD, usernameFor, jsonHeaders, safeJson } from './lib/config.js';
 
 const TARGET_VUS = Number(__ENV.SCENARIO_A_VUS || 2000);
 const RAMP_SECONDS = Number(__ENV.SCENARIO_A_RAMP_SECONDS || 30);
@@ -61,7 +61,7 @@ export function setup() {
     JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),
     jsonHeaders(null, 'setup'),
   );
-  const adminToken = loginRes.json('data.accessToken');
+  const adminToken = safeJson(loginRes, 'data.accessToken');
   if (!adminToken) throw new Error(`[setup] admin login failed: ${loginRes.status} ${loginRes.body}`);
 
   const auth = jsonHeaders(adminToken, 'setup');
@@ -78,7 +78,7 @@ export function setup() {
     }),
     auth,
   );
-  const eventId = eventRes.json('data.id');
+  const eventId = safeJson(eventRes, 'data.id');
   if (!eventId) throw new Error(`[setup] create event failed: ${eventRes.status} ${eventRes.body}`);
 
   // 票種開賣時窗要蓋住 ramp + hold + 結果輪詢緩衝,避免測到一半票種先行「已結束」。
@@ -95,7 +95,7 @@ export function setup() {
     }),
     auth,
   );
-  const ticketTypeId = ttRes.json('data.id');
+  const ticketTypeId = safeJson(ttRes, 'data.id');
   if (!ticketTypeId) throw new Error(`[setup] create ticket type failed: ${ttRes.status} ${ttRes.body}`);
 
   const publishRes = http.put(
@@ -112,12 +112,12 @@ export function setup() {
     }),
     auth,
   );
-  if (publishRes.json('code') !== 0) {
+  if (safeJson(publishRes, 'code') !== 0) {
     throw new Error(`[setup] publish event failed: ${publishRes.status} ${publishRes.body}`);
   }
 
   const warmupRes = http.post(`${BASE_URL}/api/v1/admin/ticket-types/${ticketTypeId}/warmup`, null, auth);
-  if (warmupRes.json('code') !== 0) {
+  if (safeJson(warmupRes, 'code') !== 0) {
     throw new Error(`[setup] warmup failed: ${warmupRes.status} ${warmupRes.body}`);
   }
 
@@ -140,7 +140,7 @@ export default function (data) {
     JSON.stringify({ username, password: USER_PASSWORD }),
     jsonHeaders(null, 'login'),
   );
-  const token = loginRes.json('data.accessToken');
+  const token = safeJson(loginRes, 'data.accessToken');
   if (!token) {
     console.error(`[vu ${__VU}] login failed username=${username} status=${loginRes.status} body=${loginRes.body}`);
     otherFailCount.add(1);
@@ -153,7 +153,7 @@ export default function (data) {
     JSON.stringify({ ticketTypeId: data.ticketTypeId }),
     jsonHeaders(token, 'seckillToken'),
   );
-  const seckillToken = tokenRes.json('data.token');
+  const seckillToken = safeJson(tokenRes, 'data.token');
   if (!seckillToken) {
     otherFailCount.add(1);
     settled = true;
@@ -166,7 +166,7 @@ export default function (data) {
     JSON.stringify({ ticketTypeId: data.ticketTypeId, token: seckillToken }),
     jsonHeaders(token, 'purchase'),
   );
-  const purchaseBody = purchaseRes.json();
+  const purchaseBody = safeJson(purchaseRes);
   check(purchaseRes, {
     'purchase responded with envelope': () => purchaseBody && typeof purchaseBody.code === 'number',
   });
@@ -178,7 +178,7 @@ export default function (data) {
       for (let i = 0; i < RESULT_POLL_ATTEMPTS && !resolved; i++) {
         sleep(1);
         const resultRes = http.get(`${BASE_URL}/api/v1/seckill/result/${requestId}`, jsonHeaders(token, 'result'));
-        const resultBody = resultRes.json();
+        const resultBody = safeJson(resultRes);
         const status = resultBody && resultBody.data && resultBody.data.status;
         if (status === 'SUCCESS') {
           successCount.add(1);
