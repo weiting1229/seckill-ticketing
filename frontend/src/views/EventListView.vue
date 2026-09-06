@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { listEvents, listFeaturedEvents } from '@/api/events'
 import type { EventSummary } from '@/api/types'
 import { formatDateTime } from '@/utils/datetime'
+import { useEventPoster } from '@/composables/useEventPoster'
 import GenerativePoster from '@/components/GenerativePoster.vue'
 import FeaturedEventCarousel from '@/components/FeaturedEventCarousel.vue'
 
@@ -16,8 +17,16 @@ const keyword = ref('')
 // 首次載入前不顯示「查無結果」空狀態,避免閃現
 const loadedOnce = ref(false)
 
-// 封面圖載入失敗的活動 id → 該卡改用生成式海報
-const failedCovers = reactive(new Set<string>())
+// 海報三層解析:活動封面 → 標題比對到的藝人海報 → 生成式 SVG(M8)
+const { posterUrlFor, markFailed } = useEventPoster()
+
+/**
+ * 卡片與其海報 URL 一起算好再交給模板。
+ * 模板裡呼叫三次(v-if / :src / @error)的話,每張卡每次重繪就跑三次比對。
+ */
+const cards = computed(() =>
+  items.value.map((event) => ({ event, poster: posterUrlFor(event) })),
+)
 
 async function load() {
   loading.value = true
@@ -68,14 +77,6 @@ function onPageChange(p: number) {
   page.value = p
   load()
   window.scrollTo({ top: 0, behavior: prefersReducedMotion ? 'auto' : 'smooth' })
-}
-
-function showCover(event: EventSummary): boolean {
-  return !!event.coverImageUrl && !failedCovers.has(event.id)
-}
-
-function onCoverError(id: string) {
-  failedCovers.add(id)
 }
 
 /** 以演出時間相對現在推導卡片徽章(列表僅回 PUBLISHED,故以日期分「即將登場 / 已落幕」)。 */
@@ -154,19 +155,19 @@ const skeletonCount = 8
     <!-- 海報網格 -->
     <div v-else class="grid">
       <RouterLink
-        v-for="event in items"
+        v-for="{ event, poster } in cards"
         :key="event.id"
         :to="`/events/${event.id}`"
         class="card"
       >
         <div class="card__poster">
           <img
-            v-if="showCover(event)"
-            :src="event.coverImageUrl!"
+            v-if="poster"
+            :src="poster"
             :alt="`${event.title} 封面`"
             class="card__img"
             loading="lazy"
-            @error="onCoverError(event.id)"
+            @error="markFailed(poster)"
           />
           <GenerativePoster
             v-else

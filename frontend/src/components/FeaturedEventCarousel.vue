@@ -2,16 +2,23 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { EventSummary } from '@/api/types'
 import { nextCarouselIndex, previousCarouselIndex } from '@/utils/carousel'
+import { useEventPoster } from '@/composables/useEventPoster'
 import GenerativePoster from './GenerativePoster.vue'
 
 const props = defineProps<{ items: EventSummary[] }>()
 const current = ref(0)
 const paused = ref(false)
-const failed = ref(new Set<string>())
+// 海報三層解析:活動封面 → 標題比對到的藝人海報 → 生成式 SVG(M8)
+const { posterUrlFor, markFailed } = useEventPoster()
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
 let timer: ReturnType<typeof setInterval> | undefined
 
 const active = computed(() => props.items[current.value])
+
+/** 每一張投影片與其海報 URL 一起算好,模板不重複跑比對。 */
+const slides = computed(() =>
+  props.items.map((event) => ({ event, poster: posterUrlFor(event) })),
+)
 const hasControls = computed(() => props.items.length > 1)
 
 function go(index: number) {
@@ -36,10 +43,6 @@ function restartTimer() {
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'ArrowLeft') previous()
   if (event.key === 'ArrowRight') next()
-}
-
-function markFailed(id: string) {
-  failed.value = new Set(failed.value).add(id)
 }
 
 watch([() => props.items.length, paused], () => {
@@ -69,7 +72,7 @@ onBeforeUnmount(() => clearInterval(timer))
   >
     <div class="featured__viewport">
       <RouterLink
-        v-for="(event, index) in items"
+        v-for="({ event, poster }, index) in slides"
         :key="event.id"
         :to="`/events/${event.id}`"
         class="featured__slide"
@@ -82,11 +85,11 @@ onBeforeUnmount(() => clearInterval(timer))
         :tabindex="index === current ? 0 : -1"
       >
         <img
-          v-if="event.coverImageUrl && !failed.has(event.id)"
-          :src="event.coverImageUrl"
+          v-if="poster"
+          :src="poster"
           :alt="`${event.title} 活動圖片`"
           class="featured__image"
-          @error="markFailed(event.id)"
+          @error="markFailed(poster)"
         />
         <GenerativePoster
           v-else

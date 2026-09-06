@@ -86,6 +86,37 @@ export interface EventDetail {
   serverTime: string
 }
 
+// ---------- 藝人與海報(M8)----------
+
+/** 巡演主題;可能是空陣列(實測 46 個藝人有 19 個沒有主題)。 */
+export interface TourTheme {
+  zh: string
+  en: string
+}
+
+export interface ArtistPoster {
+  /** 同源路徑 /posters/<檔名>.webp;dev 由 Vite publicDir 提供、prod 由 Caddy 提供 */
+  imageUrl: string
+  archetype: string
+  /** 指向該藝人 tourThemes 的第幾筆;null = 這張海報上沒有烤主題文字 */
+  themeIndex: number | null
+}
+
+/**
+ * 公開藝人(GET /api/v1/artists,匿名可讀)。
+ * 資料來自 poster-forge 的內容包,經 admin 匯入端點寫入,前端只讀。
+ */
+export interface ArtistPublic {
+  slug: string
+  /** 顯示名 = nameZh || nameEn(後端已推導好,前端不要自己再推一次) */
+  name: string
+  nameZh: string | null
+  nameEn: string
+  tier: 'FEATURED' | 'ROTATING'
+  tourThemes: TourTheme[]
+  posters: ArtistPoster[]
+}
+
 // ---------- 搶購 ----------
 
 export interface SeckillTokenResponse {

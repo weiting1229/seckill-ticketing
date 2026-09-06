@@ -10,6 +10,7 @@ import { useAuthStore } from '@/stores/auth'
 import { formatDateTime, formatDuration } from '@/utils/datetime'
 import { calibrate, serverNow } from '@/utils/serverClock'
 import { availabilityOf } from '@/utils/ticketDisplay'
+import { useEventPoster } from '@/composables/useEventPoster'
 import GenerativePoster from '@/components/GenerativePoster.vue'
 import CountdownBoard from '@/components/CountdownBoard.vue'
 import TicketTypeCard from '@/components/TicketTypeCard.vue'
@@ -129,15 +130,9 @@ const boardMs = computed(() => {
     : Date.parse(t.seckillStart) - now.value
 })
 
-const hasCover = computed(() => !!detail.value?.coverImageUrl)
-const coverFailed = ref(false)
-watch(
-  () => detail.value?.coverImageUrl,
-  () => {
-    coverFailed.value = false
-  },
-)
-const showCover = computed(() => hasCover.value && !coverFailed.value)
+// 海報三層解析:活動封面 → 標題比對到的藝人海報 → 生成式 SVG(M8)
+const { posterUrlFor, markFailed } = useEventPoster()
+const heroPoster = computed(() => posterUrlFor(detail.value))
 
 // ---------- 搶購流程(領 token → purchase → 輪詢結果) ----------
 
@@ -249,11 +244,11 @@ const primarySold = computed(() =>
       <section class="hero">
         <div class="hero__bg">
           <img
-            v-if="showCover"
-            :src="detail.coverImageUrl!"
+            v-if="heroPoster"
+            :src="heroPoster"
             :alt="`${detail.title} 主視覺`"
             class="hero__img"
-            @error="coverFailed = true"
+            @error="markFailed(heroPoster)"
           />
           <GenerativePoster v-else :title="detail.title" variant="banner" :show-label="false" />
         </div>
