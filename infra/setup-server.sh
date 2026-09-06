@@ -165,6 +165,22 @@ mkdir -p "$APP_DIR" "$APP_DIR/backups"
 chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
 log "應用目錄就緒:$APP_DIR(compose 與設定檔由 cd.yml 同步進來;.env 由部署流程寫入)"
 
+# 海報目錄(M8)。**必須放在上面那行 chown -R 之後** —— 順序反過來的話,
+# 遞迴 chown 會把屬主改回 $APP_USER,而下面那個 1001 就白設了。
+#
+# 屬主是 uid 1001 而不是 $APP_USER:backend 容器以 backend/Dockerfile 建立的 `app`
+# (uid 1001)執行,bind mount 沿用主機的屬主與權限。屬主不對的話**啟動不會失敗**
+# (目錄已存在,Java 的 createDirectories 是 no-op),而是等到有人真的匯入海報時
+# 才 permission denied —— 失敗點離原因很遠。
+# 這裡直接寫數字 uid 而非名稱:主機上不存在 uid 1001 的使用者,`chown app` 會失敗。
+# ⚠ 若日後改了 backend/Dockerfile 的 uid,這一行必須同步改。
+POSTERS_DIR="${POSTERS_DIR:-$APP_DIR/posters}"
+mkdir -p "$POSTERS_DIR"
+# 0755:owner(容器內的 backend)可寫,其他人可讀 —— 備份腳本以 $APP_USER 身分讀取打包。
+chown -R 1001:1001 "$POSTERS_DIR"
+chmod 0755 "$POSTERS_DIR"
+log "海報目錄就緒:$POSTERS_DIR(屬主 uid 1001 = backend 容器的 app 使用者)"
+
 # ---------------------------------------------------------------------------
 # 4. 每日 pg_dump 備份 cron
 #

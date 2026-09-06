@@ -37,3 +37,9 @@ __screenshots__/
 
 # Vite
 *.timestamp-*-*.mjs
+
+# 海報(M8)。dev 時 backend 的匯入端點直接寫進這裡,由 Vite 的 publicDir 提供,
+# 路徑與 prod 的 Caddy 一致都是 /posters/<檔名>,前端程式碼不需要區分環境。
+# ⚠ 這條一定要在:圖片刻意脫離版控(prod 走主機目錄 + 每日 tar 備份),
+# 少了它,dev 匯入一次就把整包 WebP 帶進 git,整個里程碑的前提就破了。
+public/posters/

@@ -36,6 +36,11 @@ services:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data       # Let's Encrypt 憑證與帳戶金鑰,務必持久化(否則重啟會重新簽發、撞速率限制)
       - caddy-config:/config
+      # 海報靜態檔(M8)。**唯讀**:Caddy 只需要讀,寫入是 backend 匯入端點的事。
+      # 掛成可寫的話,一個 Caddy 的設定錯誤就能改到圖檔,而那不會有任何一步報錯。
+      # 主機路徑與 backend 掛的是同一個目錄;bind mount 不是 named volume,
+      # 目的就是讓檔案留在主機上、可被 backup-db.sh 打包(見 infra/backup-db.sh)。
+      - ${POSTERS_DIR:-/opt/seckill/posters}:/srv/posters:ro
     depends_on:
       - frontend
       - backend
@@ -80,6 +85,16 @@ services:
       SECKILL_RL_USER: ${SECKILL_RL_USER:-2}
       SECKILL_RL_IP: ${SECKILL_RL_IP:-10}
       SECKILL_RL_TOKEN_USER: ${SECKILL_RL_TOKEN_USER:-5}
+      # --- 海報落地目錄(M8)---
+      # 容器內路徑,對應下面 volumes 掛進來的主機目錄。與 caddy 掛的是同一個主機目錄,
+      # 差別只在這邊可寫、caddy 那邊唯讀。
+      SECKILL_POSTERS_DIR: /srv/posters
+    volumes:
+      # ⚠ **主機目錄的屬主必須是 uid 1001**(backend/Dockerfile 的 `app` 使用者)。
+      # bind mount 沿用主機的屬主與權限,屬主不對的話 backend 啟動不會失敗
+      # (目錄已存在,createDirectories 是 no-op),而是**匯入時才 permission denied**。
+      # setup-server.sh 已負責建立並 chown 1001:1001,見該腳本第 3 節。
+      - ${POSTERS_DIR:-/opt/seckill/posters}:/srv/posters
     # 不開 port:/api 由 caddy 反代,/actuator 只給內網的 prometheus(設計第 10.7 節)
     healthcheck:
       # 執行層 eclipse-temurin:25-jre 沒有 curl/wget/nc,只有 bash。刻意不為了 healthcheck

@@ -53,6 +53,29 @@
 		reverse_proxy backend:8080
 	}
 
+	# --- 海報靜態檔(M8)---
+	#
+	# 【位置不可移到下方 catch-all 之後】與 /actuator 是同一個坑:handle 區塊互斥且**依檔案順序**
+	# 評估,放到 catch-all 後面會被前端 SPA fallback 整段吃掉 —— 而 SPA fallback 回的是
+	# 200 + index.html,所以 <img> 會拿到一份 HTML 當圖片解碼失敗,**不是 404**。
+	# 破的樣子是「圖不出來但 network 面板全綠」。驗收一定要看 Content-Type 而不是只看狀態碼。
+	#
+	# handle_path(不是 handle)會剝掉 /posters 前綴,所以 root 底下直接放檔名。
+	# 圖片由 backend 的匯入端點寫進主機的 /opt/seckill/posters,Caddy 唯讀掛載同一個目錄。
+	# 同源提供 → CSP 的 img-src 'self' 不需要放寬(設計第 10.4 節)。
+	#
+	# 刻意**不開 browse**:目錄列表會把全部檔名洩漏出去。file_server 預設就是關的,
+	# 這行註解是為了讓「沒寫 browse」看起來是決定而不是遺漏。
+	handle_path /posters/* {
+		root * /srv/posters
+		file_server
+		# ⚠ **不可用 immutable / 長 max-age**:檔名 `<slug>__<版式>.webp` 是**識別**不是內容雜湊。
+		# 同一個藝人的同一個版式換了底圖重新核可,匯入會就地覆蓋同一個檔名 —— 內容變了、URL 沒變。
+		# 標 immutable 的話訪客會一整年拿到舊圖,而且沒有任何一步會報錯(瀏覽器根本不會來問)。
+		# 一小時 + Caddy file_server 自動帶的 ETag/Last-Modified:過期後一次 304 就結束,幾乎不花流量。
+		header Cache-Control "public, max-age=3600"
+	}
+
 	# --- 其餘交給前端靜態站 ---
 	handle {
 		reverse_proxy frontend:8080
