@@ -9,6 +9,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 /**
  * 全域例外處理:所有 controller 路徑上的例外都轉為統一回應格式 {code, message, data}。
@@ -37,6 +39,28 @@ public class GlobalExceptionHandler {
                 : BizCode.VALIDATION_FAILED.message();
         return ResponseEntity.status(BizCode.VALIDATION_FAILED.httpStatus())
                 .body(ApiResponse.error(BizCode.VALIDATION_FAILED.code(), message));
+    }
+
+    /**
+     * 上傳超過 {@code spring.servlet.multipart} 上限。
+     *
+     * <p>不接這個例外的話會落到下面的 catch-all,使用者拿到的是 9999「系統錯誤」——
+     * 而這其實是參數問題,訊息裡連「檔案太大」四個字都沒有。
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUploadTooLarge(MaxUploadSizeExceededException ex) {
+        log.warn("上傳超過大小上限", ex);
+        return ResponseEntity.status(BizCode.VALIDATION_FAILED.httpStatus())
+                .body(ApiResponse.error(BizCode.VALIDATION_FAILED.code(),
+                        "上傳內容超過大小上限"));
+    }
+
+    /** multipart 少了必要的 part(例如只送了圖沒送 manifest);同樣是參數問題不是系統錯誤。 */
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingPart(MissingServletRequestPartException ex) {
+        return ResponseEntity.status(BizCode.VALIDATION_FAILED.httpStatus())
+                .body(ApiResponse.error(BizCode.VALIDATION_FAILED.code(),
+                        "缺少必要的 multipart part:" + ex.getRequestPartName()));
     }
 
     @ExceptionHandler(Exception.class)

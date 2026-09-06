@@ -57,6 +57,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/health").permitAll()
                         // 公開活動查詢:僅 GET 匿名(列表與詳情)
                         .requestMatchers(HttpMethod.GET, "/api/v1/events", "/api/v1/events/*").permitAll()
+                        // 公開藝人清單:僅 GET 匿名。刻意不寫 /api/v1/artists/**——
+                        // 全放行會把日後新增的子路徑一起放出去,而那不會有任何一步報錯。
+                        .requestMatchers(HttpMethod.GET, "/api/v1/artists").permitAll()
                         // admin API URL 層防護(方法層另有 @PreAuthorize,雙重防護)
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         // 搶購 API 僅限 ROLE_USER:防止 admin 挾權偷跑(防舞弊);方法層另有 @PreAuthorize

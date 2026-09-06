@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.seckill.artist.mapper.ArtistMapper">
+
+    <!-- tour_themes 是 JSONB,必須顯式指定 typeHandler:MyBatis 對 List<TourTheme> 沒有內建對應,
+         漏掉的話寫入會變成 List 的 toString(),讀取則直接拋轉型例外。
+         tier 為 enum,以預設 EnumTypeHandler 對應 VARCHAR;
+         map-underscore-to-camel-case 已開啟,其餘欄位自動對應駝峰屬性。 -->
+    <resultMap id="artistMap" type="com.seckill.artist.domain.Artist">
+        <id     property="id"         column="id"/>
+        <result property="slug"       column="slug"/>
+        <result property="nameZh"     column="name_zh"/>
+        <result property="nameEn"     column="name_en"/>
+        <result property="tier"       column="tier"/>
+        <result property="tourThemes" column="tour_themes"
+                typeHandler="com.seckill.artist.mapper.TourThemeListTypeHandler"/>
+        <result property="enabled"    column="enabled"/>
+        <result property="createdAt"  column="created_at"/>
+        <result property="updatedAt"  column="updated_at"/>
+    </resultMap>
+
+    <sql id="cols">id, slug, name_zh, name_en, tier, tour_themes, enabled, created_at, updated_at</sql>
+
+    <insert id="insert" parameterType="com.seckill.artist.domain.Artist">
+        INSERT INTO artists (id, slug, name_zh, name_en, tier, tour_themes, enabled, created_at, updated_at)
+        VALUES (#{id}, #{slug}, #{nameZh}, #{nameEn}, #{tier},
+                #{tourThemes, typeHandler=com.seckill.artist.mapper.TourThemeListTypeHandler},
+                #{enabled}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <!-- 刻意不更新 enabled:那是 admin 的營運開關,匯入一份內容包不該把管理員停用過的藝人重新打開。
+         破的樣子會是「停用後下一次匯入又自己活過來」,而中間沒有任何一步報錯。 -->
+    <update id="updateByImport" parameterType="com.seckill.artist.domain.Artist">
+        UPDATE artists
+        SET name_zh     = #{nameZh},
+            name_en     = #{nameEn},
+            tier        = #{tier},
+            tour_themes = #{tourThemes, typeHandler=com.seckill.artist.mapper.TourThemeListTypeHandler},
+            updated_at  = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateEnabled">
+        UPDATE artists SET enabled = #{enabled}, updated_at = #{updatedAt} WHERE id = #{id}
+    </update>
+
+    <select id="findById" resultMap="artistMap">
+        SELECT <include refid="cols"/> FROM artists WHERE id = #{id}
+    </select>
+
+    <select id="findBySlug" resultMap="artistMap">
+        SELECT <include refid="cols"/> FROM artists WHERE slug = #{slug}
+    </select>
+
+    <select id="findAll" resultMap="artistMap">
+        SELECT <include refid="cols"/> FROM artists ORDER BY slug ASC
+    </select>
+
+    <select id="findEnabled" resultMap="artistMap">
+        SELECT <include refid="cols"/> FROM artists WHERE enabled = TRUE ORDER BY slug ASC
+    </select>
+
+    <select id="findPage" resultMap="artistMap">
+        SELECT <include refid="cols"/> FROM artists
+        ORDER BY slug ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countAll" resultType="long">
+        SELECT COUNT(*) FROM artists
+    </select>
+</mapper>

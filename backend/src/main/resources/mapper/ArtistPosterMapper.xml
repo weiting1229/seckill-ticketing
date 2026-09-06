@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.seckill.artist.mapper.ArtistPosterMapper">
+
+    <sql id="cols">id, artist_id, file_name, archetype, theme_index, seed, sort_order, created_at, updated_at</sql>
+
+    <insert id="insert" parameterType="com.seckill.artist.domain.ArtistPoster">
+        INSERT INTO artist_posters (id, artist_id, file_name, archetype, theme_index, seed,
+                                    sort_order, created_at, updated_at)
+        VALUES (#{id}, #{artistId}, #{fileName}, #{archetype}, #{themeIndex}, #{seed},
+                #{sortOrder}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <!-- file_name 是冪等鍵,不更新;artist_id 可更新是刻意的:同一個檔名若換了所屬藝人
+         (poster-forge 改過 slug 推導),不搬過去會讓海報永遠掛在舊藝人底下而不報錯。 -->
+    <update id="updateByImport" parameterType="com.seckill.artist.domain.ArtistPoster">
+        UPDATE artist_posters
+        SET artist_id   = #{artistId},
+            archetype   = #{archetype},
+            theme_index = #{themeIndex},
+            seed        = #{seed},
+            sort_order  = #{sortOrder},
+            updated_at  = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <select id="findByFileName" resultType="com.seckill.artist.domain.ArtistPoster">
+        SELECT <include refid="cols"/> FROM artist_posters WHERE file_name = #{fileName}
+    </select>
+
+    <select id="findByArtistIds" resultType="com.seckill.artist.domain.ArtistPoster">
+        SELECT <include refid="cols"/> FROM artist_posters
+        WHERE artist_id IN
+        <foreach item="artistId" collection="artistIds" open="(" separator="," close=")">
+            #{artistId}
+        </foreach>
+        ORDER BY artist_id ASC, sort_order ASC, id ASC
+    </select>
+
+    <select id="findAll" resultType="com.seckill.artist.domain.ArtistPoster">
+        SELECT <include refid="cols"/> FROM artist_posters ORDER BY file_name ASC
+    </select>
+
+    <delete id="deleteByIds">
+        DELETE FROM artist_posters WHERE id IN
+        <foreach item="id" collection="ids" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+</mapper>

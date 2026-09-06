@@ -3,7 +3,7 @@ package com.seckill.common.exception;
 import org.springframework.http.HttpStatus;
 
 /**
- * 業務錯誤碼(設計文件第 9 節:4 位數,1xxx 認證、2xxx 活動、3xxx 搶購、4xxx 訂單)。
+ * 業務錯誤碼(設計文件第 9 節:4 位數,1xxx 認證、2xxx 活動、3xxx 搶購、4xxx 訂單、5xxx 藝人/海報)。
  * 每個碼綁定預設訊息與對應 HTTP 狀態。code = 0 保留給成功,不在此列舉。
  */
 public enum BizCode {
@@ -40,7 +40,16 @@ public enum BizCode {
 
     // --- 訂單 4xxx ---
     ORDER_NOT_FOUND(4001, "訂單不存在", HttpStatus.NOT_FOUND),
-    ORDER_STATUS_INVALID(4002, "訂單狀態非法,無法支付", HttpStatus.CONFLICT);
+    ORDER_STATUS_INVALID(4002, "訂單狀態非法,無法支付", HttpStatus.CONFLICT),
+
+    // --- 藝人 / 海報 5xxx(計畫 2026-08-18 §4.7 的新分段) ---
+    ARTIST_NOT_FOUND(5001, "藝人不存在", HttpStatus.NOT_FOUND),
+    ARTIST_NAME_DUPLICATED(5002, "藝人名稱重複", HttpStatus.CONFLICT),
+    ARTIST_SLUG_DUPLICATED(5003, "藝人 slug 重複", HttpStatus.CONFLICT),
+    POSTER_IMAGE_INVALID(5004, "海報圖片格式不合法(僅接受 WebP)", HttpStatus.BAD_REQUEST),
+    POSTER_IMAGE_DIMENSION_INVALID(5005, "海報圖片尺寸不合法", HttpStatus.BAD_REQUEST),
+    IMPORT_PAYLOAD_MISMATCH(5006, "manifest 與上傳檔案不一致", HttpStatus.BAD_REQUEST),
+    POSTER_STORAGE_FAILED(5007, "海報檔案寫入失敗", HttpStatus.INTERNAL_SERVER_ERROR);
 
     private final int code;
     private final String message;

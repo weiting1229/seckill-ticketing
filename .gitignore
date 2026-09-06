@@ -36,3 +36,11 @@ logs/
 
 # === k6 壓測 HTML 報告(本機產物,不進 repo)===
 load-test/reports/
+
+# 海報落地目錄。圖片刻意脫離版控:由 poster-forge 經匯入端點寫入,
+# prod 走主機 /opt/seckill/posters + 每日 tar 備份(infra/backup-db.sh)。
+# 三個 profile 三個落點,三條都要擋:
+#   - 無 profile(application.yml 的共用預設)→ backend/data/posters/(下面這條)
+#   - dev → frontend/public/posters/(擋在 frontend/.gitignore,讓 Vite 直接提供得出來)
+#   - prod → 主機目錄,不在 repo 內
+backend/data/posters/

@@ -28,10 +28,26 @@ public abstract class AbstractIntegrationTest {
     static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7").withExposedPorts(6379);
     static final RabbitMQContainer RABBITMQ = new RabbitMQContainer("rabbitmq:3.13-management");
 
+    /**
+     * 海報落地目錄。<b>在共用基底而非個別測試類別指定</b>:{@code PosterStorage} 在建構時就會
+     * 建立目錄,若只有匯入測試覆寫這個屬性,其餘每個整合測試的 context 都會在
+     * repo 底下生出 {@code backend/data/posters/};而且不同的屬性值會讓 Spring 多快取一份
+     * context,整組整合測試的容器與啟動成本跟著翻倍。
+     */
+    public static final java.nio.file.Path POSTERS_DIR = createTempPostersDir();
+
     static {
         POSTGRES.start();
         REDIS.start();
         RABBITMQ.start();
+    }
+
+    private static java.nio.file.Path createTempPostersDir() {
+        try {
+            return java.nio.file.Files.createTempDirectory("seckill-it-posters-");
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("測試用海報目錄建立失敗", e);
+        }
     }
 
     @DynamicPropertySource
@@ -46,6 +62,7 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.rabbitmq.username", RABBITMQ::getAdminUsername);
         registry.add("spring.rabbitmq.password", RABBITMQ::getAdminPassword);
         registry.add("seckill.jwt.secret", () -> TEST_JWT_SECRET);
+        registry.add("seckill.posters.dir", () -> POSTERS_DIR.toString());
         // 兜底排程在測試中不自動觸發(初始延遲拉遠),改由 OrderExpirySchedulerIT 直呼 sweepOnce() 驗證,
         // 避免自動掃描非同步取消其他測試殘留的過期 PENDING 訂單造成 flakiness。
         registry.add("order.expiry-sweep.initial-delay-ms", () -> 3_600_000);

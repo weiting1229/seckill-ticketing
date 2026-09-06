@@ -11,6 +11,16 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  servlet:
+    multipart:
+      # 全站唯一的上傳端點是 admin 的內容包匯入(一次一包 manifest + N 張海報)。
+      # max-file-size 與 seckill.posters.max-file-bytes 是兩道不同的關卡,不可只留一道:
+      #   前者由 Tomcat 在讀進記憶體/暫存檔之前就擋掉,後者是業務層的檔名級錯誤訊息。
+      # 只留後者的話,超大檔仍會被完整收下才被拒;只留前者則錯誤是 Tomcat 的,沒有檔名。
+      max-file-size: 2MB
+      # 整包上限。實測 2026-09-06 的內容包是 46 張 / 2.81 MB;計畫 §10.1 對成長的估計是
+      # 120 張約 18 MB。32MB 留了餘裕又不至於讓單一請求吃掉整個堆積。
+      max-request-size: 32MB
   rabbitmq:
     # 生產端可靠性(設計文件第 7 節):correlated confirms + mandatory + returns,
     # 供 OrderMessagePublisher 同步判定發送成功;失敗則回補 Redis。
@@ -46,6 +56,14 @@ seckill:
     # ADMIN 種子帳號(環境變數驅動,兩者皆設才建立;不設則略過)。憑證不入 repo。
     username: ${SECKILL_ADMIN_USERNAME:}
     password: ${SECKILL_ADMIN_PASSWORD:}
+  posters:
+    # 海報落地目錄。prod 由 compose 掛主機的 /opt/seckill/posters 進來並以 env 指向它;
+    # dev 用 repo 外的本機目錄,整合測試由 @DynamicPropertySource 指到暫存目錄。
+    # 對外 URL 兩邊都是 /posters/<檔名>,前端不需要區分環境(計畫 §4.6)。
+    dir: ${SECKILL_POSTERS_DIR:./data/posters}
+    max-file-bytes: ${SECKILL_POSTERS_MAX_FILE_BYTES:2097152}   # 2 MB;實測單張最大 147 KB
+    min-dimension: ${SECKILL_POSTERS_MIN_DIMENSION:640}         # 擋解壓縮炸彈與異常尺寸
+    max-dimension: ${SECKILL_POSTERS_MAX_DIMENSION:4096}
   ratelimit:
     # 搶購限流(Bucket4j + Redis)。每秒容量;正式環境可依壓測經 env 覆寫(設計文件第 10 節)。
     global-capacity: ${SECKILL_RL_GLOBAL:3000}          # 全域 QPS 上限(/seckill/purchase)
@@ -101,6 +119,15 @@ spring:
     password: ${RABBITMQ_PASSWORD}
 
 seckill:
+  posters:
+    # dev 直接寫進前端的 publicDir,讓 Vite(:5173)當場就提供得出來 —— prod 走 Caddy
+    # 的 /posters/*,兩邊對外路徑都是 /posters/<檔名>,前端程式碼不需要區分環境(計畫 §4.6)。
+    #
+    # ⚠ 相對路徑是相對於**啟動時的工作目錄**,而 runbook 的 dev 啟動方式是
+    # `cd backend && ./mvnw spring-boot:run`,所以 ../frontend/... 才對得上。
+    # 從 repo 根目錄啟動的話這個相對路徑會落在 repo 外面 —— 症狀是「匯入成功但前端看不到圖」,
+    # 不會報錯。要從別處啟動就用 SECKILL_POSTERS_DIR 指絕對路徑。
+    dir: ${SECKILL_POSTERS_DIR:../frontend/public/posters}
   ratelimit:
     # 消融測試開關(dev-only,壓測長尾延遲排查,見 HANDOFF.md「隔離限流器自己的排隊 bug」):
     # 開啟後 tryGlobal/tryUser/tryIp/tryTokenUser 整段跳過、不呼叫 Redis,直接放行,
