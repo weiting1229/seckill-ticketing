@@ -3,8 +3,9 @@
 //
 // 前置:同 scenario-a-flash-sale.js(已跑過 setup-users.js;後端已調高限流閾值)。
 //
-// 執行:
-//   k6 run load-test/scenario-b-sustained.js
+// 執行(目標環境切換見 lib/config.js 與 README):
+//   k6 run load-test/scenario-b-sustained.js                                          # dev
+//   k6 run -e TARGET_ENV=prod -e CONFIRM_PROD=yes load-test/scenario-b-sustained.js   # 正式站
 //   即時面板:K6_WEB_DASHBOARD=true k6 run load-test/scenario-b-sustained.js
 //
 // 設計取捨(自主決策,結尾報告會重述):
@@ -23,7 +24,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Counter } from 'k6/metrics';
-import { BASE_URL, ADMIN_USERNAME, ADMIN_PASSWORD, USER_PASSWORD, usernameFor, jsonHeaders, safeJson } from './lib/config.js';
+import { BASE_URL, ADMIN_USERNAME, ADMIN_PASSWORD, USER_PASSWORD, TARGET_TAGS, printTarget, usernameFor, jsonHeaders, safeJson } from './lib/config.js';
 
 const TARGET_VUS = Number(__ENV.SCENARIO_B_VUS || 1000);
 const DURATION_SECONDS = Number(__ENV.SCENARIO_B_DURATION_SECONDS || 600);
@@ -42,6 +43,7 @@ const queryCount = new Counter('b_query');
 const pollCount = new Counter('b_poll');
 
 export const options = {
+  tags: TARGET_TAGS,
   scenarios: {
     sustained: {
       executor: 'constant-vus',
@@ -52,6 +54,13 @@ export const options = {
 };
 
 export function setup() {
+  printTarget('scenario-b-sustained', {
+    vus: TARGET_VUS,
+    duration: `${DURATION_SECONDS}s`,
+    stock: STOCK,
+    userOffset: USER_OFFSET,
+  });
+
   const loginRes = http.post(
     `${BASE_URL}/api/v1/auth/login`,
     JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),

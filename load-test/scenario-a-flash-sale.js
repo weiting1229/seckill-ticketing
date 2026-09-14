@@ -7,8 +7,9 @@
 //      10/s 會把整場壓測卡在 10 QPS。見 load-test/README.md。
 //   3. 本腳本的 setup() 會自動建立、發布並 warmup 一個專用活動與票種,不需手動準備。
 //
-// 執行:
-//   k6 run load-test/scenario-a-flash-sale.js
+// 執行(目標環境切換見 lib/config.js 與 README):
+//   k6 run load-test/scenario-a-flash-sale.js                                          # dev
+//   k6 run -e TARGET_ENV=prod -e CONFIRM_PROD=yes load-test/scenario-a-flash-sale.js   # 正式站
 //   即時面板:K6_WEB_DASHBOARD=true k6 run load-test/scenario-a-flash-sale.js
 //
 // 設計取捨(自主決策,結尾報告會重述):每個 VU 對應一位壓測使用者,僅在自己的搶購結果
@@ -19,7 +20,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Counter, Trend } from 'k6/metrics';
-import { BASE_URL, ADMIN_USERNAME, ADMIN_PASSWORD, USER_PASSWORD, usernameFor, jsonHeaders, safeJson } from './lib/config.js';
+import { BASE_URL, ADMIN_USERNAME, ADMIN_PASSWORD, USER_PASSWORD, TARGET_TAGS, printTarget, usernameFor, jsonHeaders, safeJson } from './lib/config.js';
 
 const TARGET_VUS = Number(__ENV.SCENARIO_A_VUS || 2000);
 const RAMP_SECONDS = Number(__ENV.SCENARIO_A_RAMP_SECONDS || 30);
@@ -37,6 +38,7 @@ const queuingUnresolvedCount = new Counter('seckill_queuing_unresolved');
 const settleLatency = new Trend('seckill_settle_latency_ms', true);
 
 export const options = {
+  tags: TARGET_TAGS,
   scenarios: {
     flashSale: {
       executor: 'ramping-vus',
@@ -56,6 +58,14 @@ export const options = {
 };
 
 export function setup() {
+  printTarget('scenario-a-flash-sale', {
+    vus: TARGET_VUS,
+    ramp: `${RAMP_SECONDS}s`,
+    hold: `${HOLD_SECONDS}s`,
+    stock: STOCK,
+    userOffset: USER_OFFSET,
+  });
+
   const loginRes = http.post(
     `${BASE_URL}/api/v1/auth/login`,
     JSON.stringify({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD }),

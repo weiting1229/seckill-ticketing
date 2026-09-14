@@ -1,14 +1,15 @@
 // 子項 6 前置作業:批量註冊壓測帳號(冪等,可重跑)。
 //
-// 執行:
-//   k6 run load-test/setup-users.js
+// 執行(目標環境切換見 lib/config.js 與 README):
+//   k6 run load-test/setup-users.js                                          # dev
+//   k6 run -e TARGET_ENV=prod -e CONFIRM_PROD=yes load-test/setup-users.js   # 正式站
 //
 // 只需要跑一次(帳號會持續存在於 dev DB);之後每次壓測前重跑也安全,已存在的帳號會被
 // 略過(見下方 code===1001 判斷)。密碼固定為 lib/config.js 的 USER_PASSWORD。
 
 import http from 'k6/http';
 import { check } from 'k6';
-import { BASE_URL, USER_PASSWORD, USER_POOL_SIZE, usernameFor, jsonHeaders, safeJson } from './lib/config.js';
+import { BASE_URL, USER_PASSWORD, USER_POOL_SIZE, TARGET_TAGS, printTarget, usernameFor, jsonHeaders, safeJson } from './lib/config.js';
 
 const SETUP_VUS = Number(__ENV.SETUP_VUS || 50);
 // 用 per-vu-iterations(而非 shared-iterations)換取「(VU, ITER) → 帳號序號」的簡單且
@@ -16,6 +17,7 @@ const SETUP_VUS = Number(__ENV.SETUP_VUS || 50);
 const ITERATIONS_PER_VU = Math.ceil(USER_POOL_SIZE / SETUP_VUS);
 
 export const options = {
+  tags: TARGET_TAGS,
   scenarios: {
     register: {
       executor: 'per-vu-iterations',
@@ -25,6 +27,11 @@ export const options = {
     },
   },
 };
+
+// 本腳本不需要 admin,setup() 只為了在開跑前印出目標環境(prod 會倒數)。
+export function setup() {
+  printTarget('setup-users', { poolSize: USER_POOL_SIZE, vus: SETUP_VUS });
+}
 
 export default function () {
   const index = (__VU - 1) * ITERATIONS_PER_VU + __ITER;

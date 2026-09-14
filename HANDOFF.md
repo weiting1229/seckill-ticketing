@@ -66,21 +66,11 @@
 
 ---
 
-## 待辦(優先,進階段 1 前先做):k6 腳本支援直接切換環境
+## ✅ k6 腳本環境切換(2026-09-15 完成)
 
-**目標**:進下方階段 1(對 OCI 正式站壓測)之前,先把 `load-test/` 腳本改成能直接切換 dev/prod 環境,不要每次都手動一個一個設環境變數。
-
-**現況的問題**:
-- 現在每次要打正式站,得在終端機手動設好幾個環境變數(`BASE_URL`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`);PowerShell 下 `$env:` 設定的變數會留在同一個視窗裡,不會隨指令執行完自動清除,容易不小心沿用到上一輪殘留的舊值——萬一忘記把 `BASE_URL` 切回 dev 卻以為在打本機,或反過來忘記切到 prod 卻以為在打正式站,都是實際發生過的風險類型(這次階段 0 就是靠使用者自己每次重新設值才避開)。
-- 目前沒有任何「執行當下清楚顯示打的是哪個環境」的機制,單靠人工記憶環境變數目前的值。
-
-**設計時要注意的限制**:
-- admin 密碼是機密,**不能寫死進任何會 commit 的檔案**(CLAUDE.md 規範)——「切換環境」能簡化的是 `BASE_URL` 之類的非敏感預設值(例如做一個 `ENV=prod`/`ENV=dev` 的單一開關去對應一組預設值),但密碼本身大概率還是得從環境變數或本機不進版控的檔案讀,不能包進切換機制的預設值裡。
-- 因為對正式站送流量有計費風險,**切換機制執行時最好清楚印出「目前打的是哪個環境」**(例如 k6 `setup()` 的 console log,或啟動前的確認訊息),降低誤打正式站的風險,這比單純圖方便更重要。
-
-> 💡 **2026-09-08:`scripts/demo-seed/_common.py` 已經實作了一版這個模式**,可以直接抄:
-> 非 localhost 一律要求另外設 `SECKILL_CONFIRM_PROD=yes`,而且每次執行都先把目標環境印出來。
-> 密碼仍然只從環境變數讀,沒有任何預設值。
+`load-test/lib/config.js` 改由 `TARGET_ENV=dev|prod` 決定目標,prod 需 `CONFIRM_PROD=yes` + admin 帳密、
+開跑前印目標並倒數 10 秒、殘留的正式站 `BASE_URL` 在 dev 模式會被擋下。用法與防呆清單見
+[`load-test/README.md`](load-test/README.md)「切換目標環境」。
 
 ---
 
@@ -102,14 +92,16 @@
 
 **執行方式(下一步進階段 1 時沿用)**:對正式站送流量的指令,一律由**使用者自己在自己的終端機執行**,不透過我的 Bash 工具代跑——admin 帳密是部署 secret,不應貼進對話;且是對有計費風險的正式環境送流量,使用者需要親自在旁邊看著 Cost Analysis 確認。
 
-**階段 1 指令模板**(供使用者在自己終端機執行,`ADMIN_USERNAME`/`ADMIN_PASSWORD` 換成正式站實際帳密;PowerShell 用 `$env:VAR="value"` 逐行設定,不是 bash 的 `VAR=value` 行內語法):
+**階段 1 指令模板**(供使用者在自己的 PowerShell 執行;`TARGET_ENV`/`CONFIRM_PROD` 用 `-e` 傳,不會殘留在視窗裡):
 
-```bash
-BASE_URL=https://tixco.kozow.com \
-ADMIN_USERNAME=<正式站 admin 帳號> ADMIN_PASSWORD=<正式站 admin 密碼> \
-k6 run load-test/scenario-a-flash-sale.js
+```powershell
+$env:ADMIN_USERNAME="<正式站 admin 帳號>"; $env:ADMIN_PASSWORD="<正式站 admin 密碼>"
+k6 run -e TARGET_ENV=prod -e CONFIRM_PROD=yes load-test/scenario-a-flash-sale.js
 # 情境 B 同理,注意事先要有足夠帳號池(見 load-test/README.md)
+Remove-Item Env:ADMIN_USERNAME, Env:ADMIN_PASSWORD
 ```
+
+開跑前確認橫幅寫的是 `PROD  https://tixco.kozow.com` 與預期的 VU 數,倒數 10 秒內可 Ctrl+C。
 
 跑完立刻呼叫對帳 API 存證,並回 OCI Cost Analysis 確認花費無異常。
 
