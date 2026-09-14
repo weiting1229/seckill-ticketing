@@ -8,24 +8,22 @@
 搶購成功會扣掉 1 張庫存並產生 1 筆訂單 —— 那是**合法**的異動,
 DB / Redis / 訂單 / stock_logs 四方仍然一致(最後的 reconcile 就是在驗這件事)。
 """
+import calendar
 import json
 import time
 
-from _common import announce, admin_token, base_url, call
-
+import _common
+from _common import announce, admin_token
 
 
 def call(method, path, token=None, body=None):
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    req = urllib.request.Request(BASE + path, data=data, method=method)
-    req.add_header("Content-Type", "application/json")
-    if token:
-        req.add_header("Authorization", "Bearer " + token)
-    try:
-        with urllib.request.urlopen(req) as r:
-            return json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        return json.loads(e.read().decode("utf-8"))
+    # 這支要檢查 4xx 的 code(領 token / 搶購失敗時印出原因),所以錯誤回應也要拿到內容
+    return _common.call(method, path, token, body, raw_error=True)
+
+
+def utc_ms(iso: str) -> float:
+    # API 回的是 UTC(Instant)。time.mktime 會當成本地時間解讀,在 UTC+8 會差 8 小時
+    return calendar.timegm(time.strptime(iso[:19], "%Y-%m-%dT%H:%M:%S")) * 1000
 
 
 def main():
@@ -39,8 +37,8 @@ def main():
         detail = call("GET", f"/events/{ev['id']}")["data"]
         now_ms = time.time() * 1000
         for t in detail["ticketTypes"]:
-            start = time.mktime(time.strptime(t["seckillStart"][:19], "%Y-%m-%dT%H:%M:%S")) * 1000
-            end = time.mktime(time.strptime(t["seckillEnd"][:19], "%Y-%m-%dT%H:%M:%S")) * 1000
+            start = utc_ms(t["seckillStart"])
+            end = utc_ms(t["seckillEnd"])
             if start < now_ms < end and t["status"] == "ONLINE":
                 target_tt, target_ev = t, detail
                 break
