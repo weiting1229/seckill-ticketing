@@ -1,6 +1,6 @@
 # HANDOFF:交接事項
 
-> 最後更新:2026-09-08。**本文件只放需要交接給下一個 session 的待辦事項**,不放已結案的
+> 最後更新:2026-09-14。**本文件只放需要交接給下一個 session 的待辦事項**,不放已結案的
 > 排查過程或原始數據——那些在
 > [`load-test/long-tail-latency-investigation.md`](load-test/long-tail-latency-investigation.md)
 > (長尾延遲根因排查,run5–11)、
@@ -11,187 +11,58 @@
 
 ---
 
-# 🎯 現在的任務:把 M8 的海報與活動上到 OCI 正式站
+# ✅ M8 已上正式站(2026-09-14)
 
-**M8 的程式碼全部完成、本機全綠、已 commit,但一行都還沒上正式站。**
-`main` 目前 **ahead 7**(其中 4 個是 M8)。
+**正式站現況(實測)**:藝人 46 / 海報 46(`/opt/seckill/posters`,屬主 1001)/ 活動 46(精選 20)/
+票種 115(全 ONLINE + 已預熱)/ 1 筆端到端驗證訂單(`第七象限` 搖滾區,對帳 `consistent: true`)。
+`/posters/*.webp` 回 `200 + image/webp + max-age=3600`,`/posters/` 回 404。
+首頁 18 張海報全部載入、0 張壞圖。LoadTest 殘骸(1 活動 / 20 訂單 / 40 流水)已清除。
+上線前 DB 備份:`/opt/seckill/backups/seckill-20260914-140327.dump`。
 
-## 一句話說明現況
+上線過程踩到、下次會再遇到的:
 
-海報在本機 dev 已經整條打通:poster-forge 匯出 → 匯入 API → Caddy/Vite 提供 → 首頁卡片顯示
-→ 可以真的買。**正式站上完全沒有這些東西**,要把同一條路在 OCI 上再走一次。
+- **CD 暫停一段時間後 Trivy 幾乎一定會擋。** 這次停 6 天就冒出 7 個 HIGH/CRITICAL
+  (tomcat / netty / amqp-client),Spring Boot 3.5.16 已是 3.5.x 最新,只能在 `backend/pom.xml`
+  的 `<properties>` 覆寫版本(commit `4f2df61`,比照 PR #3)。兩個細節:
+  - **Trivy 表格的 Fixed Version 是合併儲存格**,同一套件的多個 CVE 可能要求不同版本
+    (amqp-client 5.33.0 還剩兩個,要 5.33.1)。**push 前先在本機用同版 Trivy 掃 jar**,省一輪 CD:
+    `docker run --rm -v "${PWD}\target:/scan:ro" aquasec/trivy:0.65.0 rootfs --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 /scan/seckill-backend-0.1.0-SNAPSHOT.jar`
+  - **Trivy 建議的版本不一定有發布**(tomcat 10.1.58 不在 Maven Central,直接跳 10.1.59)。
+- **`setup-server.sh` 重跑後要實際 `stat /opt/seckill/posters` 確認**,不要只看「跑過了」。
+  第一次回報跑完但目錄不存在(主機上 `~/` 與 `/opt/seckill/` 各有一份不同版本的腳本)。
+- 覆寫的依賴版本 **Spring Boot 出新的 3.5.x 時要回頭拿掉**,否則會把 parent 管理的更新版本壓回舊版。
 
-## 正式站現在長什麼樣(2026-09-08 實測,不是推測)
+## 需要注意
 
-| 探測 | 結果 | 意思 |
-|---|---|---|
-| `GET /` | 200 | 站台活著 |
-| `GET /api/v1/artists` | **401** | 跑的是 M8 之前的版本(該路徑不在匿名白名單,落到 `anyRequest().authenticated()`) |
-| `GET /posters/任何檔名.webp` | **200 + `Content-Type: text/html`** | ⚠️ **不是圖**,是 SPA fallback 回 index.html |
-| `GET /api/v1/events` | 200,`total: 1` | 只有 1 筆 `LoadTest Scenario A 1786874039269` 殘骸 |
-
-⚠️ **第三列是這次上線最重要的一件事。** 正式站現在對 `/posters/*` 下的**任何**路徑都回 200,
-連 `this-does-not-exist-at-all.webp` 也是 —— 因為 Caddyfile 的 `/posters/*` 路由還沒部署,
-請求落到 catch-all 被前端 SPA fallback 吃掉。
-
-**所以驗收絕對不能只看狀態碼。** 破掉的樣子是「圖不出來但 network 面板全綠」,
-`<img>` 拿到一份 HTML 解碼失敗。**一律看 `Content-Type` 是不是 `image/webp`。**
-(這個坑在 ADR 0009 §14 有完整說明,現在正式站上活生生地成立,可以當對照組。)
-
-## 上線步驟(順序不可調換)
-
-### 步驟 0:主機重跑 `setup-server.sh` —— **必須在部署之前**
-
-```bash
-scp infra/setup-server.sh opc@132.145.121.46:~
-ssh opc@132.145.121.46 'sudo APP_USER=opc bash ~/setup-server.sh'
-```
-
-該腳本這次新增了海報目錄那一節(建 `/opt/seckill/posters`、`chown 1001:1001`、`chmod 0755`)。
-
-⚠️ **為什麼不能等部署完再跑。** `docker-compose.prod.yml` 現在有一條
-`/opt/seckill/posters:/srv/posters` 的 bind mount。**Docker 遇到不存在的 bind mount 來源
-會自己建一個 root 擁有的目錄**,而 backend 容器以 uid 1001 執行 —— 於是:
-
-- backend **啟動不會失敗**(目錄存在,Java 的 `createDirectories` 是 no-op)
-- 一直到有人真的匯入海報,才在寫檔那一步 permission denied
-
-失敗點離原因很遠。先跑腳本就不會發生;真的順序跑反了,補跑 `setup-server.sh` 也能救
-(它會 `chown` 回來),但要記得重啟 backend 容器。
-
-⚠️ **`chown 1001:1001` 的 1001 綁死 `backend/Dockerfile` 的 `app` 使用者。**
-哪天改了 Dockerfile 的 uid,`setup-server.sh` 必須同步改(兩邊都留了警告註解)。
-
-### 步驟 1:push,讓 CD 部署
-
-```bash
-git push origin main
-```
-
-CD(`workflow_run`,CI 綠後自動觸發)會做兩件跟這次有關的事:
-
-- 建置並推 backend / frontend 映像 → **Flyway 會在正式站跑 `V4__create_artists.sql`**
-  (純新增 `artists` / `artist_posters` 兩張表,不動任何既有表;失敗會擋住 backend 啟動,
-  舊容器仍在)
-- `tar czf - -C infra .` 把**整個 `infra/`** 同步到 `/opt/seckill` → Caddyfile、
-  `docker-compose.prod.yml`、`backup-db.sh` 都會自動過去
-
-⚠️ `setup-server.sh` 也會被同步過去,但 **CD 不會執行它** —— 所以步驟 0 不能省。
-⚠️ CD 內含 Trivy 掃描,**HIGH/CRITICAL 即失敗**。這次沒加任何新依賴,理論上不受影響,
-但基底映像可能在這段時間爆新 CVE,失敗的話看 ADR 0008 §4 的既有處置。
-
-### 步驟 2:驗證靜態路由(看 Content-Type)
-
-```bash
-curl -I https://tixco.kozow.com/posters/7th-quadrant__bottom-heavy.webp
-```
-
-- 這時檔案還沒上傳,**預期是 404**(而且是 Caddy 的 404,不是 200+HTML)
-- 若仍是 `200 + text/html` → Caddyfile 沒生效,先查 `/opt/seckill/caddy/Caddyfile` 有沒有
-  那段 `handle_path /posters/*`,以及 caddy 容器有沒有重載
-
-### 步驟 3:把內容包匯入正式站
-
-在 poster-forge(`C:\Users\USER\Documents\poster-forge`,分支 `layout-architecture`):
-
-```bash
-SECKILL_BASE_URL=https://tixco.kozow.com \
-SECKILL_ADMIN_USERNAME=<正式站 admin> SECKILL_ADMIN_PASSWORD=<正式站密碼> \
-pnpm publish:seckill --dry-run     # 先看一次,不發任何 HTTP
-```
-
-確認無誤後拿掉 `--dry-run`。預期回報:藝人新增 46 / 海報新增 46 / 落檔 46,請求約 2.88 MB。
-
-⚠️ **正式站帳密不要貼進對話。** 這一步由使用者自己在自己的終端機執行
-(比照下方壓測那條的既有約定)。
-
-驗收:
-
-```bash
-curl -s https://tixco.kozow.com/api/v1/artists | head -c 200      # 要 200 且 code:0(不再是 401)
-curl -I https://tixco.kozow.com/posters/7th-quadrant__bottom-heavy.webp   # Content-Type: image/webp
-curl -I https://tixco.kozow.com/posters/                          # 要 404,不可列出目錄
-```
-
-### 步驟 4:建活動與票種
-
-**只匯入內容包,首頁不會有任何變化。** seckill 首頁列的是**活動**不是藝人,
-一個藝人要出現必須有一個標題含該團名的活動 —— 那本來是 seeder 的職責,而
-**seeder 完全未實作**。權宜工具在 [`scripts/demo-seed/`](scripts/demo-seed/)(本次新增,附 README):
-
-```bash
-cd scripts/demo-seed
-export SECKILL_BASE_URL=https://tixco.kozow.com
-export SECKILL_CONFIRM_PROD=yes          # 非 localhost 的強制確認,少了會直接拒跑
-export SECKILL_ADMIN_USERNAME=... SECKILL_ADMIN_PASSWORD=...
-python seed_artists_events.py            # 46 個活動(FEATURED 20 標為精選)
-python fix_empty_theme_titles.py         # 修 2 筆空主題標題,見下方「已知資料坑」
-python seed_ticket_types.py              # 115 個票種 + 逐一 warmup
-```
-
-⚠️ 那兩支 seed 腳本**不冪等**,重跑會建出第二份。清法見 `scripts/demo-seed/README.md`。
-
-### 步驟 5:驗收
-
-```bash
-python verify_purchase.py                # 端到端:註冊→領token→搶購→輪詢→對帳
-```
-
-⚠️ 這支會在正式站產生**一筆真實訂單**並扣一張庫存。對帳要回 `consistent: true`。
-本機跑出來的樣子:`dbStockRemaining 799 / redisStockRemaining 799 / validOrderCount 1 /
-stockLogNetDelta -1 / consistent: true`。
-
-再用瀏覽器看一次首頁:精選輪播與卡片要出現真海報,不是生成式 SVG。
-
-## 需要你決定的兩件事
-
-1. **正式站那筆 `LoadTest Scenario A 1786874039269` 要不要清掉?**
-   本機的 25 筆殘骸已於 2026-09-07 清除(連同 22,862 筆訂單);正式站還留著 1 筆。
-   清法見 `scripts/demo-seed/cleanup-loadtest-residue.sql`。
-2. **這 46 個活動要不要有票種?** 步驟 4 的第三支腳本會建 115 個票種讓站上真的能買。
-   不建的話詳情頁會顯示「目前沒有可購買的票種」。
-
-## 已知會咬人的地方
-
-- **`docker exec` 少 `-i` 會安靜地什麼都不做。** 2026-09-07 踩過:回報「已刪除」但一筆都沒動,
-  因為 stdin 沒被轉發。跑完 SQL 一律用 `SELECT count(*)` 複查。
-- **`loading="lazy"` 在自動化瀏覽器不觸發**,`naturalWidth` 會是 0 而圖檔其實好好的。
-  驗證海報有沒有載入時,先把 `img.loading` 改成 `eager` 再量。
-- **已知資料坑**:內容包有 6 個藝人的 `tourThemes` 陣列非空但其中一個語言是空字串
-  (`cinder` / `ethan-lin` / `lazy-siesta` / `ophelia` / `scarlet-engines` /
-  `stars-fell-into-the-forest`)。seed 腳本只檢查陣列非空,會產出「林予安 「」巡迴演唱會」
-  這種空引號標題,所以步驟 4 要跑 `fix_empty_theme_titles.py`。
-- **海報快取是 1 小時**(`Cache-Control: public, max-age=3600`)。刻意不用 `immutable`:
-  檔名 `<slug>__<版式>.webp` 是識別不是內容雜湊,同版式換底圖會就地覆蓋同一個檔名,
-  標 immutable 的訪客會一整年拿到舊圖而瀏覽器根本不會回來問(ADR 0009 §14)。
-  換圖後最多等一小時才全面生效。
-- **備份**:`backup-db.sh` 這次加了海報目錄的 tar,cron 不變(每日 03:30)。
-  上線隔天記得確認 `/opt/seckill/backups` 有 `posters-*.tar.gz`。
+- **上線隔天(2026-09-15)確認 `/opt/seckill/backups` 有 `posters-*.tar.gz`**(新版 `backup-db.sh` 第一次跑)。
+- **正式站 admin 密碼曾於 2026-09-14 出現在對話紀錄中**,使用者評估後決定不更換。
+  若日後要換:`AdminBootstrap` 帳號已存在就略過,改 GitHub Secret 不會生效,要直接 UPDATE `users.password_hash`。
+- `scripts/demo-seed/` 兩支 seed 腳本**不冪等**,正式站已跑過一次,**不要再跑**。
+- 首頁 console 有一條 CSP 擋 `index.html` 內嵌主題腳本的錯誤(2026-07-19 起就存在,與 M8 無關),已另開任務。
 
 ## M8 沒做、留給之後的
 
 | 項目 | 說明 |
 |---|---|
-| **seeder** | `docs/plans/2026-08-17-demo-event-seeder.md` **完全未實作**。⚠️ 動工前必讀:`CreateEventRequest` / `UpdateEventRequest` 的 `coverImageUrl` 是 `@Pattern("^(https?://.+)?$")`,**存不了 `/posters/x.webp` 這種同源相對路徑** —— 計畫 S5 規劃的「seeder 直接寫 `coverImageUrl`」走不通,要先放寬這個 pattern;改成寫絕對 URL 則會讓 CSP 的 `img-src 'self'` 開始擋圖 |
+| **seeder** | `docs/plans/2026-08-17-demo-event-seeder.md` **完全未實作**,正式站與本機的 46 個活動都是 `scripts/demo-seed/` 權宜產生。⚠️ 動工前必讀:`CreateEventRequest` / `UpdateEventRequest` 的 `coverImageUrl` 是 `@Pattern("^(https?://.+)?$")`,**存不了 `/posters/x.webp` 這種同源相對路徑** —— 計畫 S5 規劃的「seeder 直接寫 `coverImageUrl`」走不通,要先放寬這個 pattern;改成寫絕對 URL 則會讓 CSP 的 `img-src 'self'` 開始擋圖 |
 | **前端裁掉海報的字** | 詳情頁 hero 是 1080×420 顯示 1200×675 走 `object-fit: cover`,上下各裁 15.4%。實測 **30/46 張海報有字被裁在下緣、23/46 在上緣**。這是既有行為不是新 bug,但它是資訊遺失且不會報錯 |
 | **詳情頁團名重複** | 海報上烤著團名,HTML 又疊一次 `events.title`(標題含團名)。ADR 0009 §18 有三種收法 |
 | **`AdminArtistsView`** | 依 S7 判定**不做**:內容的唯一可寫入口是匯入,後台再開一套增刪改會讓同一份資料有兩個可寫入口 |
 | **`copy`(活動文案池)** | 內容包裡一律是空陣列,精簡 manifest 刻意不送。等有來源再兩邊一起加 |
 
+## 已知會咬人的地方
+
+- **`docker exec` 少 `-i` 會安靜地什麼都不做。** 跑完 SQL 一律用 `SELECT count(*)` 複查。
+- **`loading="lazy"` 在自動化瀏覽器不觸發**,驗證海報時先把 `img.loading` 改成 `eager` 再量 `naturalWidth`。
+- **驗收海報一律看 `Content-Type`,不看狀態碼**:Caddy 路由失效時 SPA fallback 會回 200 + HTML(ADR 0009 §14)。
+- **海報快取是 1 小時**(刻意不用 `immutable`,檔名是識別不是內容雜湊,ADR 0009 §14)。換圖後最多等一小時才全面生效。
+
 ## ❌ 已放棄的方向(2026-09-08 使用者拍板)
 
-**「把地點與時間也烤進海報」不做了。** 曾評估過三輪加工的架構
-(第一輪原圖 → 第二輪烤團名主題 → 第三輪再烤地點時間),量測結論:
-
-- 對比不是障礙:**0/46** 張的底部帶連純黑/純白都達不到 4.5:1
-- **位置才是**:**31/46(67%)** 的底部已經被第二輪的烤字佔住,第二輪的 Layout Grammar
-  已經把最好的空地用掉了,第三輪只有 33% 的圖塞得下
-- 而且活動會改期換場地,烤進圖等於改期就要重烤重傳;HTML 疊字是即時的
-- 產出量會等於**活動數**而不是藝人數(seeder 的輪替桶是 820 筆、每 10 分鐘汰換)
-
-**地點與時間維持走 HTML 疊字**(`EventDetailView` 的 `.hero__content`,`events.venue` /
-`events.eventTime`)。若日後真有「海報單獨流出去」的需求(社群卡 / 紙本 DM),
-做成**獨立的宣傳卡產出目標**,而且用「擴畫布加一條專用頁腳」而不是往剩下的空地擠。
+**「把地點與時間也烤進海報」不做了。** 量測結論:31/46(67%)的底部已被第二輪烤字佔住、
+活動改期就要重烤重傳、產出量會等於活動數而非藝人數。**地點與時間維持走 HTML 疊字**
+(`EventDetailView` 的 `.hero__content`)。若日後要社群卡 / 紙本 DM,做成獨立產出目標,
+用「擴畫布加專用頁腳」而不是往剩下的空地擠。
 
 ---
 
@@ -243,7 +114,7 @@ k6 run load-test/scenario-a-flash-sale.js
 跑完立刻呼叫對帳 API 存證,並回 OCI Cost Analysis 確認花費無異常。
 
 ⚠️ **2026-09-08 補充**:正式站上線 M8 之後再壓測的話,資料量與活動數都變了
-(1 筆 → 47 筆活動、0 → 115 個票種),階段 0 的基準數字不能直接沿用當對照組。
+(1 筆 → 46 筆活動、0 → 115 個票種;LoadTest 殘骸已清),階段 0 的基準數字不能直接沿用當對照組。
 
 ## 環境現況(如果要接續本機開發)
 
@@ -279,6 +150,6 @@ k6 run load-test/scenario-a-flash-sale.js
   ```
 - **本機 dev DB 現況**(2026-09-07 重建):46 活動(精選 20)/ 115 票種(全 ONLINE + 已預熱)/
   46 藝人 / 46 海報 / 1 筆端到端驗證訂單。壓測殘骸已全數清除。
-- **git 狀態**:`main` **ahead 7**,尚未 push。M8 的 4 個 commit 是
-  `fac1c68`(backend)、`cd6c229`(infra)、`cce2680`(frontend)、`200ef77`(docs)。
-  未提交:本文件與 `scripts/demo-seed/`。
+- **git 狀態**(2026-09-14):M8 全部已 push 並部署。M8 的 commit 是
+  `fac1c68`(backend)、`cd6c229`(infra)、`cce2680`(frontend)、`200ef77`(docs),
+  上線過程另有 `4f2df61`(CVE 版本覆寫)、`bd6bb3c`(verify_purchase 修正)。
