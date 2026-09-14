@@ -44,3 +44,7 @@ load-test/reports/
 #   - dev → frontend/public/posters/(擋在 frontend/.gitignore,讓 Vite 直接提供得出來)
 #   - prod → 主機目錄,不在 repo 內
 backend/data/posters/
+
+# === Python(scripts/demo-seed 的權宜工具)===
+__pycache__/
+*.pyc
