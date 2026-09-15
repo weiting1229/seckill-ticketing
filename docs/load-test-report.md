@@ -335,3 +335,50 @@ p99 從 2.04s 降到約 179ms,數量級上明顯改善。但如第 10.2 節所�
 - `RedisConfig.java`、連線池設定(第 12 節)、`commons-pool2` 依賴**予以保留**——技術上運作正常、沒有副作用,只是移除了驗證用的 `clientName` 標記。不把它當作長尾延遲已解決的證據。
 - 依第四次壓測結果,**沒有滿足「連線數確認增加」這個前置條件**,依約定不進行第五次壓測。
 - 真正的根因排查需要更精細的量測工具(例如 Redis 的 slowlog 或 `LATENCY` 監控,量到單一指令等級的延遲分佈),而不是連線數量這種間接指標——列為後續待辦,非今天範圍。
+
+---
+
+## 14. OCI 正式站壓測(2026-09-15 起)
+
+> 對象:**正式站** `https://tixco.kozow.com`(OCI A1 4C/24G ARM、Caddy 反代)。k6 從使用者本機(單一 IP)打入。
+> 計畫、判定標準、喊停條件:[`docs/plans/2026-09-15-oci-load-test-stages.md`](plans/2026-09-15-oci-load-test-stages.md)。
+> 限流維持正式站原設定(global 3000/s、IP 10/s、user 2/s、token_user 5/s),**與第 1–13 節本機數字不可直接比較**
+> (本機四輪皆調高限流)。Prometheus scrape 間隔 15s,以下時序皆為 `rate[1m]`,時間軸為相對 setup 完成時刻。
+
+### 14.1 輪 1-0:補帳號池(2026-09-15)
+
+`setup-users.js`,`USER_POOL_SIZE=3000`、`SETUP_VUS=20`。
+
+| 項目 | 數字 |
+|---|---|
+| 結果 | 3000/3000 checks 通過(30 筆為既有帳號回 409,冪等成功);帳號 `lt_user_00000`–`02999` |
+| 註冊吞吐 | **約 36 次/秒**,p99 0.72s,耗時 1m13s |
+| 主機 CPU | 峰值 **≈100%** |
+| 5xx | 0 |
+
+**關鍵發現:這台主機的 BCrypt(10) 吞吐上限約 36–40 次/秒。** 登入同樣走 BCrypt,情境 A 預設 30 秒 ramp 到
+2000 VU ≈ 66 次登入/秒,**必然吃滿 CPU**,會污染 purchase 延遲的判讀(計畫 §2.5)。
+
+### 14.2 輪 1-1:情境 A 小規模基準(2026-09-15)
+
+`scenario-a-flash-sale.js`,200 VU / ramp 30s / hold 60s / 庫存 100。執行前重啟 backend。
+ticketTypeId `93376035583688704`。HTML:`load-test/reports/report-prod-a-200vu-20260916-000115.html`。
+
+**伺服器端請求量(Prometheus increase,含外插誤差 ±5%)**:login 216、token 216、purchase 207、result 輪詢 108。
+purchase 狀態碼:**200 ≈103 / 409(售罄)≈104 / 429 = 0 / 5xx = 0**。
+
+> 沒有 429 的原因:情境 A 每個 VU 只搶一次,200 次 purchase 分散在 30 秒 ramp ≈ 7 次/秒,低於 IP 層 10/s。
+> 2000 VU 時 ≈ 66 次/秒,會大量觸發 IP 層 429。
+
+| 時間 | purchase HTTP p99 | global p99 | ip p99 | user p99 | token_user p99 | login p99 | CPU |
+|---|---|---|---|---|---|---|---|
+| +30s | 31ms | 3ms | 2ms | 3ms | 8ms | 112ms | 17% |
+| +45s | 26ms | 4ms | 2ms | 3ms | 3ms | 111ms | 23% |
+| +60s | 23ms | 4ms | 2ms | 3ms | 3ms | 111ms | 21% |
+| +75s | 11ms | 4ms | 1ms | 1ms | 2ms | 105ms | 11% |
+
+**對帳(ReconcileService 同邏輯,SSH 直查)**:total 100 / DB 剩 0 / Redis 剩 0 / 有效訂單 100 / stock_logs 淨 −100
+→ **consistent**。DLQ 0,Hikari pending 全程 0。殘骸已清(1 活動 / 1 票種 / 100 訂單 / 100 流水 + 2 個 Redis key)。
+
+**判讀**:乾淨基準。global 層 p99 3–4ms,與本機情境 A 的低併發對照組(investigation §證據 1:2ms)同量級,
+**此規模不預期也未觀察到根因**。登入 p99 ≈110ms、CPU 峰值 23%,登入在 ~7 次/秒下沒有造成壓力。
