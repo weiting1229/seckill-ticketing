@@ -1,0 +1,40 @@
+# 壓測專用的拋棄式 Redis(階段 3:量單一節點的限流 CAS 上限)。
+#
+# 為什麼不直接打正式 Redis(2026-09-20 使用者決定):壓測會把限流桶狀態寫進去,
+# 並在測試期間佔滿它的單執行緒 —— 那等於對正在服務使用者的節點送流量。
+# 這裡另起一個設定相同的容器,測完 down 掉即可,線上狀態完全不受影響。
+#
+# 規格刻意與 infra/docker-compose.prod.yml 的 redis 服務逐項對齊(image、appendonly、requirepass);
+# 正式站的 redis 沒有設 cpu/memory 限制,所以這裡也不設 —— 兩邊都是吃整台主機的資源。
+# 偏離任何一項,量到的數字就不能外推回正式站。
+#
+# 用法(在主機的 /opt/seckill 下):
+#   docker compose -f docker-compose.loadtest-redis.yml up -d
+#   ...跑 bench...
+#   docker compose -f docker-compose.loadtest-redis.yml down -v
+#
+# BENCH_REDIS_PASSWORD 由使用者在執行時給,不寫進任何會 commit 的檔案(CLAUDE.md 安全規範)。
+
+services:
+  redis-bench:
+    image: redis:7
+    container_name: seckill-redis-bench
+    environment:
+      BENCH_REDIS_PASSWORD: ${BENCH_REDIS_PASSWORD:?請設定 BENCH_REDIS_PASSWORD}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$BENCH_REDIS_PASSWORD\""]
+    # 刻意不開 ports:只讓同一個 docker 網路內的 bench 容器連,不對主機或外網暴露
+    healthcheck:
+      # 不用 CMD-SHELL(HANDOFF 記錄過的踩雷),比照 prod 的寫法
+      test: ["CMD-SHELL", "redis-cli -a \"$$BENCH_REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: "no"
+    networks:
+      - seckill
+
+networks:
+  # 接上正式站 compose 已經建好的網路,bench 容器才能用容器名連到 redis-bench
+  seckill:
+    external: true
+    name: seckill-prod_default
