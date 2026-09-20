@@ -421,6 +421,12 @@ k6 自訂 Counter:`seckill_success` **309**、`seckill_ratelimited` **1651**、`
 **對帳(ReconcileService 同邏輯,SSH 直查)**:total 1000 / DB 剩 691 / Redis 剩 691 / 有效訂單 309
 (全為 PENDING_PAYMENT)/ stock_logs 淨 −309 → **consistent,零超賣零重複**。DLQ 0。
 
+> **未解釋的 40 筆 `seckill_other_fail`(2%)**:server 端 `/api/v1/seckill/token` 全是 200、
+> 沒有任何 429 或 5xx,purchase 的 200+429 合計也比 2000 少約 40 —— 也就是這 40 個 VU 的請求
+> **沒有到達伺服器**,最可能是 ramp 期間 client 端的連線層失敗(k6 `status=0`,計畫 §1.3 的喊停
+> 條件之一,2% 尚未到需要喊停的程度)。同樣因為 HTML dashboard 沒有 name 標籤的分項,
+> 無法從報告檔回推確認。下一輪留 k6 結尾摘要即可辨明。
+
 #### ⚠️ 為什麼這一輪不能拿來判定 §2.6
 
 **這一輪對 `seckill:rl:global` 的壓力只有約 65 次/秒,是要驗證的門檻(`global-capacity=3000`/s)的 2%。**
