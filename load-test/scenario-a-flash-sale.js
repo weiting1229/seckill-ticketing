@@ -12,6 +12,16 @@
 //   k6 run -e TARGET_ENV=prod -e CONFIRM_PROD=yes load-test/scenario-a-flash-sale.js   # 正式站
 //   即時面板:K6_WEB_DASHBOARD=true k6 run load-test/scenario-a-flash-sale.js
 //
+// 集中預登入(預設開啟,SCENARIO_A_PRELOGIN=false 可關掉):
+//   setup() 一次把 SCENARIO_A_VUS 個帳號的 access token 全部拿好,VU 迴圈內不再登入。
+//   原因是登入走 BCrypt,階段 1-0 實測 OCI A1 的上限只有約 36–40 次/秒,而 30 秒 ramp 到
+//   2000 VU 等於每秒約 66 次登入 —— 登入會先把 CPU 佔滿,量到的 purchase 延遲就分不清
+//   是限流 global key 排隊還是 CPU 飽和(計畫 docs/plans/2026-09-15-oci-load-test-stages.md §2.5)。
+//   代價:(a) 與本機歷史四輪(每 VU 各自登入)的數字不可直接比較;
+//   (b) setup() 回傳值 k6 會每個 VU 複製一份,2000 個 token 約多吃 1 GB 記憶體;
+//   (c) token TTL 15 分鐘,預登入 + 冷卻 + 測試全長要留在預算內(setup 會印剩餘秒數)。
+//   細節見 lib/config.js 的 preLoginTokens()。
+//
 // 設計取捨(自主決策,結尾報告會重述):每個 VU 對應一位壓測使用者,僅在自己的搶購結果
 // 定局(SUCCESS/FAIL,或逾時仍未定局)之後才停止對該票種送出請求,改為原地 sleep 撐滿測試
 // 時長,不會無限重試造成大量「重複購買」雜訊——這樣「30 秒 ramp + 持續 2 分鐘」量到的才是
@@ -20,7 +30,19 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Counter, Trend } from 'k6/metrics';
-import { BASE_URL, ADMIN_USERNAME, ADMIN_PASSWORD, USER_PASSWORD, TARGET_TAGS, printTarget, usernameFor, jsonHeaders, safeJson } from './lib/config.js';
+import {
+  BASE_URL,
+  ADMIN_USERNAME,
+  ADMIN_PASSWORD,
+  USER_PASSWORD,
+  TARGET_TAGS,
+  PRELOGIN_BATCH_SIZE,
+  printTarget,
+  preLoginTokens,
+  usernameFor,
+  jsonHeaders,
+  safeJson,
+} from './lib/config.js';
 
 const TARGET_VUS = Number(__ENV.SCENARIO_A_VUS || 2000);
 const RAMP_SECONDS = Number(__ENV.SCENARIO_A_RAMP_SECONDS || 30);
@@ -28,6 +50,8 @@ const HOLD_SECONDS = Number(__ENV.SCENARIO_A_HOLD_SECONDS || 120);
 const STOCK = Number(__ENV.SCENARIO_A_STOCK || 1000);
 const USER_OFFSET = Number(__ENV.SCENARIO_A_USER_OFFSET || 0);
 const RESULT_POLL_ATTEMPTS = Number(__ENV.RESULT_POLL_ATTEMPTS || 10);
+// 預設在 setup() 集中預登入,量測窗內不再有 BCrypt(計畫 §2.5);設 false 可復刻舊的每 VU 各自登入行為
+const PRELOGIN = String(__ENV.SCENARIO_A_PRELOGIN || 'true').toLowerCase() !== 'false';
 
 const successCount = new Counter('seckill_success');
 const soldOutCount = new Counter('seckill_soldout');
@@ -39,6 +63,11 @@ const settleLatency = new Trend('seckill_settle_latency_ms', true);
 
 export const options = {
   tags: TARGET_TAGS,
+  // 預登入要串 2000 次登入,預設 60s 的 setup 逾時絕對不夠
+  setupTimeout: __ENV.SETUP_TIMEOUT || '10m',
+  // http.batch() 的併發上限。k6 預設 batchPerHost=6,全部打同一主機時會把預登入綁死在 6 併發
+  batch: PRELOGIN_BATCH_SIZE,
+  batchPerHost: PRELOGIN_BATCH_SIZE,
   scenarios: {
     flashSale: {
       executor: 'ramping-vus',
@@ -64,6 +93,7 @@ export function setup() {
     hold: `${HOLD_SECONDS}s`,
     stock: STOCK,
     userOffset: USER_OFFSET,
+    preLogin: PRELOGIN,
   });
 
   const loginRes = http.post(
@@ -73,6 +103,10 @@ export function setup() {
   );
   const adminToken = safeJson(loginRes, 'data.accessToken');
   if (!adminToken) throw new Error(`[setup] admin login failed: ${loginRes.status} ${loginRes.body}`);
+
+  // 預登入排在活動建立之前:它是 setup 裡最久的一段(2000 個帳號約 1 分鐘),
+  // 先做完再建票種,warmup 到開跑的空檔才不會被拉長。
+  const tokens = PRELOGIN ? preLoginTokens(TARGET_VUS, USER_OFFSET) : null;
 
   const auth = jsonHeaders(adminToken, 'setup');
   const now = Date.now();
@@ -132,19 +166,14 @@ export function setup() {
   }
 
   console.log(`[setup] eventId=${eventId} ticketTypeId=${ticketTypeId} stock=${STOCK} title=${eventTitle}`);
-  return { ticketTypeId, eventId };
+  return { ticketTypeId, eventId, tokens };
 }
 
 let settled = false; // 本 VU 是否已有定局結果,避免對同一票種重複搶購
 
-export default function (data) {
-  if (settled) {
-    sleep(1);
-    return;
-  }
-
-  const username = usernameFor(USER_OFFSET + __VU - 1);
-
+// SCENARIO_A_PRELOGIN=false 時的舊路徑:每個 VU 在量測窗內自己登入一次。
+// 保留是為了能復刻本機歷史四輪的行為做對照,正常跑不會走到這裡。
+function loginInline(username) {
   const loginRes = http.post(
     `${BASE_URL}/api/v1/auth/login`,
     JSON.stringify({ username, password: USER_PASSWORD }),
@@ -153,6 +182,21 @@ export default function (data) {
   const token = safeJson(loginRes, 'data.accessToken');
   if (!token) {
     console.error(`[vu ${__VU}] login failed username=${username} status=${loginRes.status} body=${loginRes.body}`);
+  }
+  return token;
+}
+
+export default function (data) {
+  if (settled) {
+    sleep(1);
+    return;
+  }
+
+  const username = usernameFor(USER_OFFSET + __VU - 1);
+  const token = data.tokens ? data.tokens[__VU - 1] : loginInline(username);
+  if (!token) {
+    // 預登入模式下走到這裡代表 setup 當時這個帳號就沒拿到 token(已在 [prelogin] 印過原因)
+    if (data.tokens) console.error(`[vu ${__VU}] 預登入沒有 token username=${username}`);
     otherFailCount.add(1);
     settled = true;
     return;

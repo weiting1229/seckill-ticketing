@@ -141,7 +141,7 @@ k6 端同時匯出 HTML 報告,檔名帶 `prod`:
 |---|---|---|---|
 | 1-0 | 補帳號池 | `load-test/setup-users.js` + `-e USER_POOL_SIZE=3000 -e SETUP_VUS=20` | 註冊是 BCrypt 吃 CPU,VU 刻意壓低;冪等可重跑。`checks_succeeded` 要 100% |
 | 1-1 | 情境 A 小規模基準 | `scenario-a-flash-sale.js` + `-e SCENARIO_A_VUS=200 -e SCENARIO_A_HOLD_SECONDS=60 -e SCENARIO_A_STOCK=100` | 看 §2.5 的「登入污染」與 CPU,決定能否上 2000 |
-| 1-2 | 情境 A 正式規模 | `scenario-a-flash-sale.js`(預設 2000 VU / ramp 30s / hold 120s / 庫存 1000) | 根因判定(§2.6) |
+| 1-2 | 情境 A 正式規模 | `scenario-a-flash-sale.js`(預設 2000 VU / ramp 30s / hold 120s / 庫存 1000),**預設已是集中預登入**,setup 會多花約 1 分鐘 | 根因判定(§2.6) |
 | 1-3 | 情境 B 正式規模 | `scenario-b-sustained.js`(預設 1000 VU / 10 分鐘 / 庫存 1500 / 帳號 2000 起) | 根因判定;本機長尾延遲主要是在這個情境出現 |
 
 每一輪都走 §1.2 的完整流程(含重啟 backend、立刻對帳、清殘骸)。
@@ -155,6 +155,12 @@ k6 端同時匯出 HTML 報告,檔名帶 `prod`:
 - 1-1 時對照 `http_server_requests_seconds{uri="/api/v1/auth/login"}` 的 p99 與主機 CPU
 - 若登入明顯吃滿 CPU:**先停下來討論**是否把腳本改成 `setup()` 內集中預登入(access token 15 分鐘,
   足夠涵蓋情境 A)。改了會失去與本機歷史數字的可比性,是需要使用者確認的取捨
+- ✅ **2026-09-20 使用者拍板:1-2 起改用集中預登入。** 1-0 量到的 BCrypt 上限(36–40 次/秒)
+  對上 1-2 的 ramp 需求(約 66 次/秒),登入必定先撞天花板,不必再花一輪去確認。實作見
+  `load-test/lib/config.js` 的 `preLoginTokens()` 與 `load-test/README.md`「集中預登入」。
+  三個要盯的副作用:token TTL 15 分鐘(setup 會印剩餘秒數)、k6 會把 setup 回傳值複製給每個 VU
+  (2000 token 約多吃 1 GB 記憶體)、與本機歷史四輪不可直接比較(對照組設
+  `SCENARIO_A_PRELOGIN=false`)
 - 區分方法:限流 global 層 p99 是**端到端含 Redis 排隊**的計時,若它維持毫秒級而 HTTP p99 很高,
   延遲在別處(CPU / 登入 / Caddy),不是根因重現
 

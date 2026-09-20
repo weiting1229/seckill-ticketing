@@ -107,6 +107,28 @@ K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_EXPORT="load-test/reports/report-scenario
 | `SCENARIO_A_VUS` / `SCENARIO_A_RAMP_SECONDS` / `SCENARIO_A_HOLD_SECONDS` / `SCENARIO_A_STOCK` | 2000 / 30 / 120 / 1000 | 情境 A 參數 |
 | `SCENARIO_B_VUS` / `SCENARIO_B_DURATION_SECONDS` / `SCENARIO_B_STOCK` | 1000 / 600 / 1500 | 情境 B 參數 |
 | `THINK_TIME_MIN_MS` / `THINK_TIME_MAX_MS`(情境 B) | 1000 / 3000 | 每輪迭代間的隨機思考時間 |
+| `SCENARIO_A_PRELOGIN`(情境 A) | `true` | `false` 可關掉集中預登入,復刻「每 VU 在量測窗內自己登入」的舊行為 |
+| `PRELOGIN_BATCH_SIZE` | 20 | 預登入的 `http.batch()` 併發數;腳本會把 k6 的 `batch` / `batchPerHost` 一併設成同值 |
+| `PRELOGIN_COOLDOWN_SECONDS` | 15 | 預登入結束後的冷卻秒數,讓 CPU 回到基線再開始量測 |
+| `SETUP_TIMEOUT` | `10m` | `setup()` 逾時;預登入 2000 個帳號約需 1 分鐘,k6 預設的 60s 不夠 |
+
+### 集中預登入(情境 A,預設開啟)
+
+登入走 BCrypt(10),**OCI A1 四核實測吞吐上限只有約 36–40 次/秒**(階段 1-0)。情境 A 原本每個
+VU 在 `default()` 開頭各自登入一次,30 秒 ramp 到 2000 VU 等於每秒約 66 次登入,遠超上限——
+登入會先把 CPU 佔滿,量到的 purchase 延遲就分不清是「限流 global key 在 Redis 排隊」還是
+「CPU 飽和」。所以 `setup()` 改成一次把整個帳號池的 access token 拿齊,量測窗內不再有 BCrypt。
+
+跑之前要知道的三件事:
+
+- **access token TTL 15 分鐘**。預登入 + 冷卻 + 測試全長必須留在預算內,`setup()` 會印出
+  `[prelogin] token 剩餘有效時間約 Ns`;超過就會測到一半開始 401。
+- **記憶體**:k6 會把 `setup()` 的回傳值**複製給每一個 VU**(官方文件明載)。2000 個 token
+  約 0.5 MB,乘以 2000 VU 約多吃 1 GB。k6 本身 2000 VU 已需要數 GB,開跑前確認機器記憶體夠。
+- **與本機歷史四輪不可直接比較**:那幾輪是每 VU 各自登入。要做對照組請設
+  `SCENARIO_A_PRELOGIN=false`。
+
+預登入的請求帶 `name:preLogin` 標籤,與量測窗內的 `purchase` / `login` 分得開。
 
 ## 判讀結果時的重要提醒
 
