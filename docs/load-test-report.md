@@ -382,3 +382,63 @@ purchase 狀態碼:**200 ≈103 / 409(售罄)≈104 / 429 = 0 / 5xx = 0**。
 
 **判讀**:乾淨基準。global 層 p99 3–4ms,與本機情境 A 的低併發對照組(investigation §證據 1:2ms)同量級,
 **此規模不預期也未觀察到根因**。登入 p99 ≈110ms、CPU 峰值 23%,登入在 ~7 次/秒下沒有造成壓力。
+
+### 14.3 輪 1-2:情境 A 正式規模 2000 VU(2026-09-20)—— ⚠️ 本輪無法判定根因
+
+`scenario-a-flash-sale.js` 預設參數:2000 VU / ramp 30s / hold 120s / 庫存 1000,**首次啟用集中預登入**
+(`setup()` 一次取齊 2000 顆 access token,見 `load-test/README.md`「集中預登入」)。執行前已重啟 backend。
+ticketTypeId `95172506020741120`。HTML:`load-test/reports/report-prod-a-2000vu-20260920-225925.html`。
+
+#### 預登入達成了它的目的
+
+| 階段 | 時間(相對 setup 完成 T0=1789916495) | CPU | login p99 |
+|---|---|---|---|
+| 預登入(2000 次登入) | −55s ～ −5s | **63% → 90%** | 530ms |
+| 冷卻 15s 後 | +5s | **7.3%** | —(無流量) |
+| 量測窗(ramp + 搶購) | +15s ～ +35s | 峰值 **42%** | **NaN = 零次登入** |
+
+預登入吞吐約 **36 次/秒**(2000 次約 55 秒),與輪 1-0 量到的 BCrypt 上限一致。
+**量測窗內 `/api/v1/auth/login` 完全沒有流量,CPU 峰值從預期的 100% 降到 42%** ——
+計畫 §2.5 的「登入污染」在這一輪已排除。
+
+#### 量測窗數字
+
+| 時間 | purchase HTTP p99 | global p99 | ip p99 | user p99 | token_user p99 | CPU |
+|---|---|---|---|---|---|---|
+| +35s | 13.7ms | 3.5ms | 1.2ms | 1.7ms | 2.6ms | 34% |
+| +45s | 9.7ms | 1.7ms | 1.0ms | 1.0ms | 1.0ms | 6% |
+
+purchase 狀態碼(rate[30s] 峰值):**200 ≈9.9/s、429 ≈54.9/s、5xx = 0**。
+
+k6 自訂 Counter:`seckill_success` **309**、`seckill_ratelimited` **1651**、`seckill_other_fail` **40**、
+售罄 0、重複 0 —— 合計 2000,每個 VU 各一次,全數有結果。`checks_succeeded` 100%。
+`seckill_settle_latency_ms` avg 1094ms / p99 1179ms(含腳本強制的 1 秒首次輪詢間隔,實際結算約 94ms)。
+
+> ⚠️ k6 client 端的 `http_req_duration{name:purchase}` p99 **沒有留下數字**:HTML dashboard 只匯出
+> 未分 name 標籤的彙總(整體 p99 581ms,但那被 setup 的預登入拉高,無意義)。上表是 Prometheus 的
+> server 端數字。下一輪要留 client 端數字的話,要另外存 k6 終端機的結尾摘要或加 `--summary-export`。
+
+**對帳(ReconcileService 同邏輯,SSH 直查)**:total 1000 / DB 剩 691 / Redis 剩 691 / 有效訂單 309
+(全為 PENDING_PAYMENT)/ stock_logs 淨 −309 → **consistent,零超賣零重複**。DLQ 0。
+
+#### ⚠️ 為什麼這一輪不能拿來判定 §2.6
+
+**這一輪對 `seckill:rl:global` 的壓力只有約 65 次/秒,是要驗證的門檻(`global-capacity=3000`/s)的 2%。**
+
+算式:每個 VU 只搶一次就 `settled`,2000 個 VU 在 30 秒 ramp 內各打一次 purchase ≈ 66 次/秒;
+攔截器順序是 `tryGlobal → tryIp → tryUser`,所以 global key 確實每次都被打到,但**總量就只有這麼多**。
+ramp 結束後 2000 個 VU 全部定局,hold 的 120 秒**整段是 idle sleep**,沒有任何流量
+(Prometheus 在 +55s 之後全是 NaN 可以佐證)。
+
+所以 §2.6 判定表的第二列(「HTTP p99 與 global 層 p99 都維持毫秒級 → ❌ 未重現」)**不適用**:
+它的前提是有把 global key 壓到會排隊的量,而這一輪沒有。正確的結論是**本輪無效**,不是「根因不存在」。
+
+這也解釋了為什麼庫存 1000 只賣掉 309:IP 層 10/s 在 30 秒內只放行約 300 次,其餘 1651 次在通過 global 層後
+被 IP 層擋成 429。與 investigation run11「成交上限是 VU 數,不是庫存」是同一個結構性限制的另一面。
+
+#### 本輪確立的事
+
+1. **集中預登入有效**,量測窗內零 BCrypt,CPU 峰值 42%。這個改動可以沿用到後續所有輪次。
+2. **正式站在這個規模下完全健康**:p99 全部毫秒級、零 5xx、零超賣、DLQ 0。
+3. **情境 A 的 one-shot 設計 + 單機 k6 單一 IP,產生不出接近 3000/s 的 global key 流量。**
+   階段 1 要能判定,必須先解決流量產生方式,否則再跑幾輪 2000 VU 也只會得到同一組毫秒級數字。
