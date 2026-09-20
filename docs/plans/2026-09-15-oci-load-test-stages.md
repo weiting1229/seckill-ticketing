@@ -252,17 +252,22 @@ HANDOFF 原本寫「正式站部署啟用 `SECKILL_RL_BYPASS=true`」,**這樣�
 一個 Redis 節點面對瞬間爆量的 Bucket4j CAS 檢查(`casBasedBuilder`,Lettuce),
 在 OCI 上最多能撐多少併發而不讓排隊延遲失控?
 
-### 4.2 未決定:用什麼工具量(需另外設計)
+### 4.2 ✅ 已定案(2026-09-20 使用者拍板):主機內 Java 小程式 + 拋棄式 Redis
 
-k6 本身不能直接連 Redis,且要量的是 **Redis 本身**,必須避開 HTTP / Tomcat / Caddy 的干擾:
+**因為 1-2 的結果,這個階段從「階段 1 之後」提前到「階段 1 卡住時的替代路徑」**(見 §2.8):
+用 HTTP 產不出門檻量級的流量,而階段 1 想問的「global key 會不會排隊」與本階段要問的
+「單節點能撐多少 CAS 併發」其實是同一個問題的兩種問法,所以直接做這個。
 
-| 選項 | 說明 | 取捨 |
+| 決策 | 選擇 | 理由 / 放棄了什麼 |
 |---|---|---|
-| xk6-redis 擴充 | 自建含 Redis 模組的 k6 binary | 沿用 k6 生態;但要重現 Bucket4j 的 CAS 語意得自己寫 Lua,與正式程式碼不同路徑 |
-| 主機上跑獨立 Java 小程式 | 在 OCI 主機的 Docker 網路內,直接用 Bucket4j + Lettuce 打同一種 key | **與正式程式碼路徑一致**;要多維護一支程式,且與正式 Redis 共用時會影響線上 |
-| `redis-benchmark` | 直接壓 `EVALSHA` | 最快;但只量指令吞吐,不含 CAS 重試的語意 |
+| 用什麼量 | **主機上跑獨立 Java 小程式** | 與正式程式碼路徑一致。放棄 xk6-redis(要自己寫 Lua 重現 CAS 語意,等於量另一條路徑)與 `redis-benchmark`(只量指令吞吐,不含 CAS 重試) |
+| 打哪個 Redis | **另起一個同規格容器** | 不污染線上限流狀態、不佔用正在服務使用者的節點。代價是要確認規格與線上一致,否則數字不可外推 |
 
-另一個待決:**對正式 Redis 量還是另起一個同規格的 Redis 容器**(避免污染線上限流狀態)。
+實作:[`load-test/ratelimit-bench/`](../../load-test/ratelimit-bench/)(含 README:與正式程式碼的逐項對應、
+建置與執行指令、判讀方式)、[`infra/docker-compose.loadtest-redis.yml`](../../infra/docker-compose.loadtest-redis.yml)。
+
+要找的是**拐點**:併發再往上加、`ops/s` 不再上升(甚至下降)而 p99 陡升的那一階,
+該階的 `ops/s` 就是 §5.1 要用的「單節點安全上限」。`ops/s` 下降是 CAS 重試風暴的典型形狀,不是量測出錯。
 
 ### 4.3 結果
 
