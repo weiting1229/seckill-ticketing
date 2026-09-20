@@ -7,6 +7,8 @@
 
 # === Java / Maven ===
 backend/target/
+load-test/ratelimit-bench/target/
+load-test/ratelimit-bench/dependency-reduced-pom.xml
 *.class
 *.jar
 !.mvn/wrapper/maven-wrapper.jar
