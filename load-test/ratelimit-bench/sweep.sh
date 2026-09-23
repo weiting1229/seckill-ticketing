@@ -27,6 +27,12 @@ rcli() {
     docker exec "$REDIS_CONTAINER" redis-cli --no-auth-warning -a "$BENCH_REDIS_PASSWORD" "$@" | tr -d '\r'
 }
 
+if [ "$(docker inspect -f '{{.State.Health.Status}}' "$REDIS_CONTAINER" 2>/dev/null)" != "healthy" ]; then
+    echo "$REDIS_CONTAINER 不存在或尚未 healthy。先在 /opt/seckill 下起拋棄式 Redis:" >&2
+    echo "  BENCH_REDIS_PASSWORD=... docker compose -f docker-compose.loadtest-redis.yml up -d --wait" >&2
+    exit 1
+fi
+
 echo "stepSeconds=$STEP_SECONDS warmupSeconds=$WARMUP_SECONDS steps=$*"
 for c in "$@"; do
     echo
