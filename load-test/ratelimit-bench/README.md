@@ -73,6 +73,21 @@ JAVA_HOME="C:\\Users\\USER\\.jdks\\temurin-25\\jdk-25.0.3+9" ../../backend/mvnw 
    ssh oci-seckill 'cd /opt/seckill && BENCH_REDIS_PASSWORD=x docker compose -f docker-compose.loadtest-redis.yml down -v'
    ```
 
+### 逐階量測 + Redis 指令計數(`sweep.sh`)
+
+第一輪發現 `ops/s × 併發` 是常數(見 `docs/load-test-report.md` §14.4)後加的。每階單獨起一次 bench,
+前後 `CONFIG RESETSTAT` / `INFO commandstats`,計時窗中段抓 Redis 與 bench 兩個容器的 CPU,
+用來分辨瓶頸在 Redis 單執行緒還是 client 端單一連線:
+
+```bash
+scp load-test/ratelimit-bench/sweep.sh oci-seckill:/tmp/
+ssh oci-seckill "BENCH_REDIS_PASSWORD='<同一個密碼>' bash /tmp/sweep.sh 1 2 5 10 20 30 50"
+```
+
+判讀:`cmdstat_*` 的 `calls` 合計 ÷(該階 ops/s ×(暖身 + 計時秒數))= 每次成功的指令數。
+若它隨併發數線性成長,重試風暴成立。Redis CPU 接近 100% → 瓶頸在 Redis;
+Redis 沒滿而 bench 容器約 100%(單核)→ 瓶頸在 client 端 event loop。
+
 ## 環境變數
 
 | 變數 | 預設 | 說明 |
