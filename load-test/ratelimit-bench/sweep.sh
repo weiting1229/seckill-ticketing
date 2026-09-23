@@ -27,6 +27,13 @@ rcli() {
     docker exec "$REDIS_CONTAINER" redis-cli --no-auth-warning -a "$BENCH_REDIS_PASSWORD" "$@" | tr -d '\r'
 }
 
+# jar 不存在時 docker -v 會在主機上以 root 建一個同名空目錄,java 只會報
+# "Invalid or corrupt jarfile",看不出真因(實測踩過)
+if [ ! -f "$JAR" ]; then
+    echo "$JAR 不是檔案。若它是 docker 誤建的空目錄,先 sudo rmdir 再重傳 jar。" >&2
+    exit 1
+fi
+
 if [ "$(docker inspect -f '{{.State.Health.Status}}' "$REDIS_CONTAINER" 2>/dev/null)" != "healthy" ]; then
     echo "$REDIS_CONTAINER 不存在或尚未 healthy。先在 /opt/seckill 下起拋棄式 Redis:" >&2
     echo "  BENCH_REDIS_PASSWORD=... docker compose -f docker-compose.loadtest-redis.yml up -d --wait" >&2
