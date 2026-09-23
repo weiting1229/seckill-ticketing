@@ -43,8 +43,11 @@ Bucket4j + Lettuce CAS 路徑打同一把 key。
 
 ```bash
 cd load-test/ratelimit-bench
-JAVA_HOME="C:\\Users\\USER\\.jdks\\temurin-25\\jdk-25.0.3+9" ../../backend/mvnw -B package
+JAVA_HOME="C:\\Users\\USER\\.jdks\\temurin-25\\jdk-25.0.3+9" ../../backend/mvnw -B clean package
 ```
+
+一定要帶 `clean`：`target/` 留著上次的 fat jar 時，shade 會把它當成輸入再包一層（警告
+`ratelimit-bench.jar define 263 overlapping classes`）。
 
 產出 `target/ratelimit-bench.jar`（fat jar，約 7 MB）。jar 不進版控（`.gitignore` 的 `*.jar`）。
 
