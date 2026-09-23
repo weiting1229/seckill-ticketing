@@ -20,6 +20,9 @@ JAR=${BENCH_JAR:-/tmp/ratelimit-bench.jar}
 NET=${BENCH_NETWORK:-seckill-prod_default}
 STEP_SECONDS=${BENCH_STEP_SECONDS:-30}
 WARMUP_SECONDS=${BENCH_WARMUP_SECONDS:-5}
+# 設成極大值(例如 100000000)桶就永遠不會被取空,量到的是純 CAS 寫入上限
+CAPACITY=${BENCH_CAPACITY:-3000}
+KEY=${BENCH_KEY:-seckill:rl:global}
 REDIS_CONTAINER=seckill-redis-bench
 BENCH_CONTAINER=seckill-ratelimit-bench
 
@@ -40,22 +43,32 @@ if [ "$(docker inspect -f '{{.State.Health.Status}}' "$REDIS_CONTAINER" 2>/dev/n
     exit 1
 fi
 
-echo "stepSeconds=$STEP_SECONDS warmupSeconds=$WARMUP_SECONDS steps=$*"
+echo "capacity=$CAPACITY stepSeconds=$STEP_SECONDS warmupSeconds=$WARMUP_SECONDS steps=$*"
 for c in "$@"; do
     echo
     echo "=== concurrency $c ==="
+    # 每階從空 key 開始:Bucket4j 會沿用 key 裡存的舊桶設定,換 capacity 時不刪會量到舊設定
+    rcli DEL "$KEY" >/dev/null
     rcli CONFIG RESETSTAT >/dev/null
 
     # 計時窗中段取一次 CPU 快照(背景執行,bench 結束前一定會跑完)
     (
         sleep $((WARMUP_SECONDS + STEP_SECONDS / 2))
         docker stats --no-stream --format '{{.Name}} cpu={{.CPUPerc}}' "$REDIS_CONTAINER" "$BENCH_CONTAINER"
+        # 容器總量分不出「單一執行緒 100%」:列出 bench JVM 最忙的 5 條執行緒。
+        # ps 的 %CPU 是執行緒存活期間的平均,不是瞬時值;Lettuce 的 I/O 執行緒名稱是 lettuce-epoll…
+        pid=$(docker inspect -f '{{.State.Pid}}' "$BENCH_CONTAINER" 2>/dev/null || true)
+        if [ -n "$pid" ]; then
+            ps -L -o pcpu=,comm= -p "$pid" | sort -rn | head -5 | sed 's/^/  thread /'
+        fi
     ) &
 
     docker run --rm --name "$BENCH_CONTAINER" --network "$NET" \
         -v "$JAR":/bench.jar:ro \
         -e REDIS_URI="redis://:${BENCH_REDIS_PASSWORD}@${REDIS_CONTAINER}:6379/0" \
         -e BENCH_STEPS="$c" \
+        -e BENCH_CAPACITY="$CAPACITY" \
+        -e BENCH_KEY="$KEY" \
         -e BENCH_STEP_SECONDS="$STEP_SECONDS" \
         -e BENCH_WARMUP_SECONDS="$WARMUP_SECONDS" \
         -e BENCH_GAP_SECONDS=0 \
@@ -63,5 +76,6 @@ for c in "$@"; do
         | grep -E '^concurrency|^ *[0-9]+ \|'
     wait
 
-    rcli INFO commandstats | grep -E '^cmdstat_' || true
+    # eval = CAS 嘗試;psetex 在 CAS 腳本內、只有比對成功才執行 = 成功寫入;get 含腳本內的那一次
+    rcli INFO commandstats | grep -E '^cmdstat_(get|eval|psetex):' || true
 done
