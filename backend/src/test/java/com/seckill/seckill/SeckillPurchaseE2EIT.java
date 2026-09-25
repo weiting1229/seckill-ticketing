@@ -45,9 +45,9 @@ class SeckillPurchaseE2EIT extends AbstractAdminIntegrationTest {
      * 其他測試類別(不同閾值)會殘留狀態;刪除後以本 context 閾值重建,確保併發請求都能抵達 deduct。
      */
     private void resetRateLimitBuckets() {
-        redisTemplate.delete("seckill:rl:global");
-        redisTemplate.delete("seckill:rl:ip:127.0.0.1");
-        redisTemplate.delete("seckill:rl:ip:0:0:0:0:0:0:0:1");
+        redisTemplate.delete("seckill:ratelimit:global");
+        redisTemplate.delete("seckill:ratelimit:ip:127.0.0.1");
+        redisTemplate.delete("seckill:ratelimit:ip:0:0:0:0:0:0:0:1");
     }
 
     private String createEvent(String admin) {

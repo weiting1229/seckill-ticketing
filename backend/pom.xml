@@ -20,7 +20,6 @@
     <properties>
         <java.version>25</java.version>
         <mybatis-spring-boot.version>3.0.5</mybatis-spring-boot.version>
-        <bucket4j.version>8.19.0</bucket4j.version>
         <jjwt.version>0.12.7</jjwt.version>
         <jacoco.version>0.8.15</jacoco.version>
         <netty.version>4.1.137.Final</netty.version>
@@ -90,18 +89,6 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
             <scope>runtime</scope>
-        </dependency>
-
-        <!-- 限流(MVP:Bucket4j + Redis/Lettuce)-->
-        <dependency>
-            <groupId>com.bucket4j</groupId>
-            <artifactId>bucket4j_jdk17-core</artifactId>
-            <version>${bucket4j.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.bucket4j</groupId>
-            <artifactId>bucket4j_jdk17-lettuce</artifactId>
-            <version>${bucket4j.version}</version>
         </dependency>
 
         <!-- JWT -->

@@ -1,32 +1,26 @@
 package com.seckill.config;
 
-import io.github.bucket4j.distributed.ExpirationAfterWriteStrategy;
-import io.github.bucket4j.distributed.proxy.ProxyManager;
-import io.github.bucket4j.redis.lettuce.Bucket4jLettuce;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisURI;
 import io.lettuce.core.api.StatefulRedisConnection;
-import io.lettuce.core.codec.ByteArrayCodec;
-import io.lettuce.core.codec.RedisCodec;
-import io.lettuce.core.codec.StringCodec;
-import java.time.Duration;
 import org.springframework.boot.autoconfigure.data.redis.RedisProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Bucket4j 限流的 Redis(Lettuce)後端(設計文件第 10 節,防刷第一層)。
+ * 限流專用的 Redis(Lettuce)連線(ADR 0010 §6)。
  *
- * <p>Bucket4j 的 Lettuce 整合需要一條 {@code StatefulRedisConnection<String, byte[]>};Spring Data
- * 的 {@code LettuceConnectionFactory} 不便直接取得原生連線,故此處<b>依 {@code spring.data.redis.*}
- * 屬性另建一條專用 Lettuce 連線</b>供 Bucket4j 使用(與應用主連線分離)。桶狀態存於 Redis,故限流為
- * 分散式(未來多實例共享同一上限)。
+ * <p>為什麼不走 {@code StringRedisTemplate}:{@link RedisConfig} 關閉了 {@code shareNativeConnection}
+ * 且未啟用連線池,實測每次 template 呼叫都會新開一條 TCP 連線(200 次呼叫 {@code total_connections_received}
+ * 增加 201)。限流在每個搶購請求的最前緣,3000/s 就是每秒 3000 次連線建立。
+ * 這裡依 {@code spring.data.redis.*} 另建<b>一條長駐、多工共用</b>的連線,與階段 5 bench 量測的形狀相同
+ * (單一共享 {@code StatefulRedisConnection},報告 §14.7)。
  */
 @Configuration
 public class RateLimitConfig {
 
     @Bean(destroyMethod = "shutdown")
-    public RedisClient bucket4jRedisClient(RedisProperties props) {
+    public RedisClient rateLimitRedisClient(RedisProperties props) {
         RedisURI.Builder builder = RedisURI.builder()
                 .withHost(props.getHost())
                 .withPort(props.getPort())
@@ -41,17 +35,7 @@ public class RateLimitConfig {
     }
 
     @Bean(destroyMethod = "close")
-    public StatefulRedisConnection<String, byte[]> bucket4jRedisConnection(RedisClient bucket4jRedisClient) {
-        // Bucket4j 要求 key=String、value=byte[] 的 codec
-        return bucket4jRedisClient.connect(RedisCodec.of(StringCodec.UTF8, ByteArrayCodec.INSTANCE));
-    }
-
-    @Bean
-    public ProxyManager<String> bucket4jProxyManager(
-            StatefulRedisConnection<String, byte[]> bucket4jRedisConnection) {
-        return Bucket4jLettuce.casBasedBuilder(bucket4jRedisConnection)
-                .expirationAfterWrite(ExpirationAfterWriteStrategy
-                        .basedOnTimeForRefillingBucketUpToMax(Duration.ofSeconds(10)))
-                .build();
+    public StatefulRedisConnection<String, String> rateLimitRedisConnection(RedisClient rateLimitRedisClient) {
+        return rateLimitRedisClient.connect();
     }
 }

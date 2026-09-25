@@ -28,7 +28,7 @@ public class SeckillTokenRateLimitInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         Long userId = ClientRequestInfo.currentUserId();
         if (userId != null && !rateLimiter.tryTokenUser(userId)) {
-            metrics.rateLimited();
+            metrics.rateLimited(RateLimitLayer.TOKEN_USER.tag());
             throw new BusinessException(BizCode.RATE_LIMITED);
         }
         return true;

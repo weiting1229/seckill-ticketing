@@ -33,9 +33,13 @@ public class SeckillMetrics {
         registry.counter("seckill.requests", "result", result, "ticket_type_id", ticketTypeId).increment();
     }
 
-    /** 被限流:result=rate_limited,ticket_type_id 未知(限流發生在請求前緣)。 */
-    public void rateLimited() {
+    /**
+     * 被限流:result=rate_limited,ticket_type_id 未知(限流發生在請求前緣);
+     * 另以 {@code seckill.ratelimit.rejected{layer}} 記錄是哪一層擋下(global / ip / user / token_user)。
+     */
+    public void rateLimited(String layer) {
         incrementRequest("rate_limited", TICKET_TYPE_UNKNOWN);
+        registry.counter("seckill.ratelimit.rejected", "layer", layer).increment();
     }
 
     /** 從發 MQ 到訂單落庫的耗時(以訊息 timestamp 計);負值(時鐘偏移)clamp 為 0。 */
@@ -54,12 +58,12 @@ public class SeckillMetrics {
     }
 
     /**
-     * 限流檢查(Bucket4j {@code tryConsume})端到端耗時,含 Redis 單執行緒佇列排隊等待,
-     * 不是 slowlog 那種只算 server 端執行片段。layer 例:global / user / ip / token_user。
+     * 限流檢查(一次 Lua 腳本呼叫)端到端耗時,含 Redis 單執行緒佇列排隊等待,
+     * 不是 slowlog 那種只算 server 端執行片段。layer 為呼叫點:purchase(三層合併)/ token_user。
      */
     public void recordRateLimitCheckDuration(String layer, long durationNanos) {
         Timer.builder("seckill.ratelimit.check.duration")
-                .description("限流檢查(Bucket4j tryConsume)端到端耗時,含 Redis 佇列排隊等待")
+                .description("限流檢查(Lua 令牌桶)端到端耗時,含 Redis 佇列排隊等待")
                 .publishPercentileHistogram()
                 .tag("layer", layer)
                 .register(registry)

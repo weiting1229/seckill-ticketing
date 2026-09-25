@@ -65,7 +65,7 @@ seckill:
     min-dimension: ${SECKILL_POSTERS_MIN_DIMENSION:640}         # 擋解壓縮炸彈與異常尺寸
     max-dimension: ${SECKILL_POSTERS_MAX_DIMENSION:4096}
   ratelimit:
-    # 搶購限流(Bucket4j + Redis)。每秒容量;正式環境可依壓測經 env 覆寫(設計文件第 10 節)。
+    # 搶購限流(Redis Lua 令牌桶,ADR 0010)。每秒容量;正式環境可依壓測經 env 覆寫(設計文件第 10 節)。
     global-capacity: ${SECKILL_RL_GLOBAL:3000}          # 全域 QPS 上限(/seckill/purchase)
     user-capacity: ${SECKILL_RL_USER:2}                 # 單用戶對 /seckill/purchase 每秒
     ip-capacity: ${SECKILL_RL_IP:10}                    # 單 IP 每秒(/seckill/purchase)
@@ -130,7 +130,7 @@ seckill:
     dir: ${SECKILL_POSTERS_DIR:../frontend/public/posters}
   ratelimit:
     # 消融測試開關(dev-only,壓測長尾延遲排查,見 HANDOFF.md「隔離限流器自己的排隊 bug」):
-    # 開啟後 tryGlobal/tryUser/tryIp/tryTokenUser 整段跳過、不呼叫 Redis,直接放行,
+    # 開啟後 checkPurchase/tryTokenUser 整段跳過、不呼叫 Redis,直接放行,
     # 用來把「限流器排隊」與「下游真實承載上限」兩件事分開測。
     # 這個 key 只存在於 dev profile;prod profile 沒有對應設定,@Value 預設值 false 生效,
     # 即使誤設 SECKILL_RL_BYPASS 環境變數也不會在 prod 生效。測完記得改回 false 或整段拿掉。
