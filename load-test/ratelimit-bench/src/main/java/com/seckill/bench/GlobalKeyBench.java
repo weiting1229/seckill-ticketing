@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BooleanSupplier;
 
@@ -50,9 +51,13 @@ import java.util.function.BooleanSupplier;
  * 讀、算、寫在 Redis 內一次完成,沒有 CAS 重試。同樣是單一共享連線、同樣的閉環量法,
  * 兩種模式的數字才能直接對照。
  *
+ * <p><b>{@code BENCH_MODE=lua-purchase}</b>(ADR 0010 §9):打 backend 正式的 {@code ratelimit_token_bucket.lua},
+ * 每次檢查帶三把 key(全域 + 單 IP + 單用戶),IP 與用戶每次都換新(對應大量不同使用者同時搶),
+ * 單 IP / 單用戶容量對齊正式站預設 10 / 2。腳本回 0 為放行,非 0 為被第幾層擋下。
+ *
  * <p>用法(環境變數):
  * <pre>
- *   BENCH_MODE           bucket4j(預設,正式站現行路徑)或 lua
+ *   BENCH_MODE           bucket4j(預設,M9 前的正式站路徑)、lua(階段 5 單 key)或 lua-purchase(M9 正式腳本,三把 key)
  *   REDIS_URI            必填,例如 redis://:password@seckill-redis-bench:6379/0
  *   BENCH_KEY            預設 seckill:rl:global
  *   BENCH_CAPACITY       預設 3000(對齊正式站 global-capacity)
@@ -74,8 +79,8 @@ public final class GlobalKeyBench {
         int warmupSeconds = Integer.parseInt(env("BENCH_WARMUP_SECONDS", "5"));
         int gapSeconds = Integer.parseInt(env("BENCH_GAP_SECONDS", "10"));
         String mode = env("BENCH_MODE", "bucket4j");
-        if (!mode.equals("bucket4j") && !mode.equals("lua")) {
-            throw new IllegalStateException("BENCH_MODE 只能是 bucket4j 或 lua,收到 " + mode);
+        if (!mode.equals("bucket4j") && !mode.equals("lua") && !mode.equals("lua-purchase")) {
+            throw new IllegalStateException("BENCH_MODE 只能是 bucket4j、lua 或 lua-purchase,收到 " + mode);
         }
 
         System.out.printf("mode=%s key=%s capacity=%d steps=%s stepSeconds=%d warmupSeconds=%d%n",
@@ -87,9 +92,11 @@ public final class GlobalKeyBench {
         try (StatefulRedisConnection<String, byte[]> conn =
                      client.connect(RedisCodec.of(StringCodec.UTF8, ByteArrayCodec.INSTANCE))) {
 
-            BooleanSupplier check = mode.equals("lua")
-                    ? luaCheck(conn, key, capacity)
-                    : bucket4jCheck(conn, key, capacity);
+            BooleanSupplier check = switch (mode) {
+                case "lua" -> luaCheck(conn, key, capacity);
+                case "lua-purchase" -> luaPurchaseCheck(conn, key, capacity);
+                default -> bucket4jCheck(conn, key, capacity);
+            };
 
             System.out.println();
             System.out.println("concurrency |     ops |  ops/s | allowed | throttled | errors |    p50 |    p90 |    p99 |  p99.9 |    max");
@@ -150,6 +157,35 @@ public final class GlobalKeyBench {
             Long r = conn.sync().evalsha(sha, ScriptOutputType.INTEGER, keys, capacityArg, capacityArg);
             return r != null && r == 1L;
         };
+    }
+
+    /** M9 正式腳本:全域 + 每次新的 IP 與用戶(容量對齊正式站預設 ip 10、user 2)。 */
+    private static BooleanSupplier luaPurchaseCheck(StatefulRedisConnection<String, byte[]> conn,
+                                                    String globalKey, long capacity) throws IOException {
+        byte[] script = readResource("/ratelimit_token_bucket.lua");
+        String sha = conn.sync().scriptLoad(script);
+        byte[] globalCap = Long.toString(capacity).getBytes(StandardCharsets.US_ASCII);
+        byte[] ipCap = "10".getBytes(StandardCharsets.US_ASCII);
+        byte[] userCap = "2".getBytes(StandardCharsets.US_ASCII);
+        AtomicLong seq = new AtomicLong();
+        return () -> {
+            long n = seq.incrementAndGet();
+            String[] keys = {
+                    globalKey,
+                    "seckill:ratelimit:ip:10." + (n >> 16 & 255) + "." + (n >> 8 & 255) + "." + (n & 255),
+                    "seckill:ratelimit:user:" + n};
+            Long r = conn.sync().evalsha(sha, ScriptOutputType.INTEGER, keys, globalCap, ipCap, userCap);
+            return r != null && r == 0L;
+        };
+    }
+
+    private static byte[] readResource(String path) throws IOException {
+        try (InputStream in = GlobalKeyBench.class.getResourceAsStream(path)) {
+            if (in == null) {
+                throw new IllegalStateException("jar 內找不到 " + path);
+            }
+            return in.readAllBytes();
+        }
     }
 
     private static StepResult runStep(BooleanSupplier check, int concurrency, int warmupSeconds, int stepSeconds)

@@ -10,6 +10,7 @@
 #   BENCH_REDIS_PASSWORD=<同 compose 的密碼> bash /tmp/sweep.sh 1 2 5 10 20 30 50
 #
 # BENCH_MODE=lua 改量原子 Lua token bucket(計畫 §6),其餘參數與判讀方式相同。
+# BENCH_MODE=lua-purchase 量 M9 正式腳本(三把 key),搭配 BENCH_KEY=seckill:ratelimit:global。
 #
 # 注意:commandstats 含每階 BENCH_WARMUP_SECONDS 的暖身流量,bench 的 ops 不含。
 # 算「每次成功的指令數」時分母要用 ops/s × (暖身 + 計時秒數)。
@@ -81,5 +82,5 @@ for c in "$@"; do
 
     # bucket4j:eval = CAS 嘗試;psetex 在 CAS 腳本內、只有比對成功才執行 = 成功寫入;get 含腳本內的那一次
     # lua:evalsha = 檢查次數(應 ≈ ops,沒有重試);hset 為腳本內的寫入,每次檢查恰好一次
-    rcli INFO commandstats | grep -E '^cmdstat_(get|eval|evalsha|psetex|hset):' || true
+    rcli INFO commandstats | grep -E '^cmdstat_(get|eval|evalsha|psetex|hset|hmget):' || true
 done

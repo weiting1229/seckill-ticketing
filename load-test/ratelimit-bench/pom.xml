@@ -57,6 +57,18 @@
 
     <build>
         <finalName>ratelimit-bench</finalName>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <!-- BENCH_MODE=lua-purchase 直接打包 backend 的正式腳本,不複製一份:量到的就是會上線的那支(ADR 0010 §9) -->
+            <resource>
+                <directory>../../backend/src/main/resources/lua</directory>
+                <includes>
+                    <include>ratelimit_token_bucket.lua</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

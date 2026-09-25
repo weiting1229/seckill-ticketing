@@ -49,6 +49,12 @@ Bucket4j + Lettuce CAS 路徑打同一把 key。
 
 放行量精準貼齊 capacity(不多放、也不因競爭掉到設定值以下),是這個模式能拿來比較的前提。
 
+## `BENCH_MODE=lua-purchase`:M9 正式腳本(ADR 0010 §9)
+
+打包時直接把 `backend/src/main/resources/lua/ratelimit_token_bucket.lua` 收進 jar(見 pom 的 `<resources>`),
+量的就是會上線的那支。每次檢查三把 key:全域(`BENCH_KEY`,請設 `seckill:ratelimit:global`)+ 每次新的 IP + 每次新的用戶,
+單 IP / 單用戶容量對齊正式站預設 10 / 2。與 `lua` 模式的差別:每次讀寫三把 key,且被擋下時不寫回。
+
 ## 量法
 
 閉環（closed loop）：每個 worker 拿到回應就立刻送下一個，所以「併發數」是**在途請求數**，
@@ -111,7 +117,7 @@ Redis 沒滿而 bench 容器約 100%(單核)→ 瓶頸在 client 端 event loop�
 
 | 變數 | 預設 | 說明 |
 |---|---|---|
-| `BENCH_MODE` | `bucket4j` | `bucket4j`(正式站現行 CAS 路徑)或 `lua`(候選) |
+| `BENCH_MODE` | `bucket4j` | `bucket4j`(M9 前的 CAS 路徑)、`lua`(階段 5 單 key)或 `lua-purchase`(M9 正式腳本) |
 | `REDIS_URI` | 必填 | 例如 `redis://:password@seckill-redis-bench:6379/0`。程式不會把它印出來（含密碼） |
 | `BENCH_KEY` | `seckill:rl:global` | 要打的 key |
 | `BENCH_CAPACITY` | 3000 | 桶容量，對齊正式站 `global-capacity` |
