@@ -20,7 +20,7 @@
 - k6 壓測腳本與壓測報告
 
 **明確不做(留給後續 Phase):**
-- 自研 Rate Limiter(Phase 2,MVP 先用 Bucket4j + Redis 頂替)
+- 獨立的 Rate Limiter 服務(Phase 2;MVP 以 backend 內的 Redis Lua 令牌桶實作,原為 Bucket4j,ADR 0010 更換)
 - Feature Flag 服務(Phase 3)
 - 自製 MQ(Phase 4,屆時替換 RabbitMQ)
 - 自製監控核心(Phase 5,選做)
@@ -44,7 +44,7 @@
                          │  ┌──────────────────────────────┐      │
                          │  │  backend (Spring Boot 3.5)    │      │
                          │  │  - JWT 認證 / RBAC            │      │
-                         │  │  - Bucket4j 限流(MVP)        │      │
+                         │  │  - Lua 令牌桶限流            │      │
                          │  │  - Snowflake ID 模組          │      │
                          │  └──┬──────────┬──────────┬─────┘      │
                          │     │          │          │            │
@@ -66,7 +66,7 @@
 
 ```
 用戶點擊搶購
-  → [API] JWT 驗證 + Bucket4j 限流(全域/單用戶/單 IP)
+  → [API] JWT 驗證 + Lua 令牌桶限流(全域/單 IP/單用戶,單一腳本全有或全無)
   → [API] 校驗一次性搶購 token(防腳本繞過頁面直刷下單接口)
   → [Redis Lua] 原子操作:查重複購買 → 查庫存 → 扣庫存 → 記錄已購
       ├─ 失敗(售罄/重複)→ 立即返回,流量到此為止,絕不觸碰 DB
@@ -92,7 +92,7 @@
 | 快取 | Redis 7.x | Lua 腳本保證原子性 |
 | MQ | RabbitMQ 3.13(management + prometheus plugin) | TTL + DLX 實現延遲佇列 |
 | 認證 | Spring Security + JWT | access 15 分鐘 / refresh 7 天,refresh 存 Redis 可撤銷 |
-| 限流(MVP) | Bucket4j + Redis | Phase 2 換自研 Rate Limiter |
+| 限流(MVP) | Redis Lua 令牌桶(專案內腳本) | 原為 Bucket4j,熱 key CAS 重試撐不住 3000/s 而更換(ADR 0010);Phase 2 再抽成獨立服務 |
 | 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router | UI 庫用 Element Plus |
 | 監控 | Micrometer → Prometheus、Grafana、Alertmanager | node / postgres / redis exporter |
 | 壓測 | k6 | 腳本入 repo:`load-test/` |
@@ -239,6 +239,7 @@ WHERE id = #{ticketTypeId} AND stock_remaining > 0;
 | `seckill:bought:{ticketTypeId}` | Set(userId) | 已購用戶集合,防重複購買第一層 | 同上 |
 | `seckill:token:{userId}:{ticketTypeId}` | String | 一次性搶購 token,校驗後即刪 | 60 秒 |
 | `seckill:result:{requestId}` | String | 排隊結果(SUCCESS:orderId / FAIL:原因),供輪詢 API | 10 分鐘 |
+| `seckill:ratelimit:global`、`seckill:ratelimit:ip:{ip}`、`seckill:ratelimit:user:{userId}`、`seckill:ratelimit:token:user:{userId}` | Hash(`t` 剩餘微 token、`ts` Redis 時間微秒) | 令牌桶狀態,由限流 Lua 腳本讀寫(ADR 0010) | 桶補滿所需時間 + 1 秒 |
 
 **核心 Lua 腳本 `seckill_deduct.lua`(原子執行,杜絕競態):**
 
@@ -329,7 +330,8 @@ order.delay.exchange (direct)
 1. **認證/授權**:Spring Security + JWT;BCrypt(strength 10);refresh token 存 Redis、可主動撤銷;RBAC 兩角色,admin API 以 URL 層 + 方法層(`@PreAuthorize`)雙重防護
 2. **注入防護**:MyBatis 參數一律 `#{}`;動態排序欄位採白名單;Jakarta Validation 校驗所有入參(長度、範圍、格式)
 3. **搶購防刷三層**:
-   - Bucket4j + Redis 限流:全域 QPS 上限(依壓測定,初始 3000)、單用戶對 `/seckill/purchase` 每秒 2 次、單 IP 每秒 10 次
+   - Redis Lua 令牌桶限流:全域 QPS 上限(依壓測定,初始 3000)、單用戶對 `/seckill/purchase` 每秒 2 次、單 IP 每秒 10 次。
+     三層由同一支腳本原子檢查,**三層都有額度才一起扣**,被任一層擋下的請求不消耗其他層額度(ADR 0010 §3)
    - 一次性 token:下單必須先領 token,60 秒有效、用後即焚(Lua 原子校驗+刪除),使腳本無法跳過頁面流程直刷下單接口
    - Redis 已購集合 + DB 唯一約束,雙層防重複購買
 4. **傳輸與邊界**:Caddy 全站 HTTPS(自動憑證);CORS 白名單只允許正式網域與 `localhost:5173`;安全 header(HSTS、X-Content-Type-Options、基本 CSP);後端與所有中介軟體容器不對外開 port,只在 Docker 內網被 Caddy / Prometheus 存取
@@ -428,7 +430,7 @@ caddy、frontend、backend、postgres、redis、rabbitmq、prometheus、grafana�
 
 ## 15. 後續 Phase 路線圖(本文件不展開)
 
-- **Phase 2 — Rate Limiter as a Service**:獨立服務 + Java SDK,實作固定窗口/滑動窗口/令牌桶,替換 Bucket4j,以監控數據對比前後效果
+- **Phase 2 — Rate Limiter as a Service**:獨立服務 + Java SDK,實作固定窗口/滑動窗口/令牌桶,取代 backend 內的 Lua 令牌桶(ADR 0010),以監控數據對比前後效果
 - **Phase 3 — Feature Flag 服務**:開關/百分比灰度/緊急熔斷,SDK 本地快取 + 變更推送,首個場景是搶票開賣總開關
 - **Phase 4 — 自製 MQ**:實作 topic / partition / consumer group / offset / 持久化,以相同抽象介面替換 RabbitMQ,壓測對比吞吐與延遲
 - **Phase 5(選做)— 自製監控核心**:時序儲存 + 告警引擎,以 Grafana 自訂資料源接入,與 Prometheus 並行對比
