@@ -180,11 +180,12 @@ class RateLimiterServiceIT extends AbstractIntegrationTest {
                 (RedisCallback<Properties>) c -> c.serverCommands().info("stats"))
                 .getProperty("total_connections_received"));
         long before = connectionsReceived.getAsLong();
-        for (int i = 0; i < 50; i++) {
+        for (int i = 0; i < 100; i++) {
             freshPurchase();
         }
-        // 兩次 INFO 本身各開一條連線(走 template)
-        assertThat(connectionsReceived.getAsLong() - before).isLessThanOrEqualTo(2);
+        // 走 template 會是 ~100 條。容器跨測試類別共用,同一時間其他元件(listener、INFO 本身)也會開連線,
+        // 實測有個位數的背景噪音,所以用倍數差距判斷而不是精確值
+        assertThat(connectionsReceived.getAsLong() - before).isLessThan(20);
     }
 
     @Test
