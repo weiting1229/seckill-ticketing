@@ -91,15 +91,24 @@
 | 4 | 算出 sharded counter 要拆幾片 | ✅ **已完成**(2026-09-23,計畫 §5)。公式改為 `ceil(目標流量 × 單次耗時 ÷ 10)`;目標 3000/s、單次耗時取正式站實測 global p99 3.5ms → **最少 2 片,建議 4 片**(每片 750/s) |
 | 5 | 評估原子 Lua token bucket 能否讓一把 key 直接撐住 3000/s(計畫 §6) | ✅ **已完成**(2026-09-25,5-1/5-2,報告 §14.7)。**一把 key 就撐得住,不需要分片**:放行精準 3000/s、併發 200 時 p99 5ms、沒有拐點、零重試;上限約 8.5 萬次檢查/秒(Redis 單執行緒 ~94%),是 CAS 絕對上限的 13.6 倍 |
 
-### 下一步(待使用者決定)
+### ✅ M9:限流改原子 Lua 令牌桶(2026-09-25 實作完成,**未 push、未部署**)
 
-壓測與評估都做完了。剩下的都是**會改正式站行為**的決策:
+[ADR 0010](docs/adr/0010-限流改原子Lua令牌桶(M9).md)。四層全換、搶購三層全有或全無、移除 Bucket4j、key 改前綴 `seckill:ratelimit:*`。
+commit `5c2f3ec`(設計文件 + ADR)、`774731b`(實作 + 測試)、`a11cc85`(bench)、本筆(結果)。
+OCI bench(報告 §14.8):實際情境 9 萬次檢查/秒、p99 5.3ms;最壞情境 3.3 萬次/秒。
 
-- **要不要把全域限流換成 Lua token bucket**(階段 5 結論:一把 key 足夠,sharded counter 不需要)。
-  另要決定 user / ip / token_user 三層是否一起換。會改 `RateLimiterService`,需寫 ADR 0010 與併發測試。
-  候選腳本已在 `load-test/ratelimit-bench/src/main/resources/token_bucket.lua`。
+**部署前後要看的**:
+- 部署後 `seckill.ratelimit.check.duration` 的 layer 變成 `purchase` / `token_user`,新增 `seckill.ratelimit.rejected{layer}`。
+- 部署當下限流狀態重置一次(新前綴),舊 `seckill:rl:*` 2–10 秒內自然過期,不用手動清。
+- CD 的 Trivy 若擋,照上方「CD 暫停一段時間後 Trivy 幾乎一定會擋」處理;這次移除了 Bucket4j,依賴只少不多。
+
+**M9 順帶發現、未修**:`StringRedisTemplate` 每次呼叫新開 TCP 連線(`RedisConfig` 關了 shareNativeConnection 又沒開 pool,
+實測 200 次 = 201 條)。扣庫存、token 校驗都受影響。已開獨立任務,改法要先問(會改正式站 Redis 行為)。
+
+### 之後的待辦(待使用者決定)
+
+- **M9 的 push 與部署**(使用者決定)。
 - 階段 2(下游承載)要不要做。
-- 3000/s 下的真實單次 global 檢查耗時沒量過,§5.3 的敏感度表是用來判斷 4 片的餘裕。
 
 ### 本輪自行決定的事(2026-09-25)
 
@@ -107,6 +116,9 @@
 - 桶狀態存「整數微 token」的 hash:補充量 = 經過微秒 × 每秒補充數,恰為整數,無浮點累積誤差。放棄:直接存浮點 token 數。
 - bench 用 `BENCH_MODE` 切換,而不是另寫一支 Lua bench:兩條路徑共用同一套量法與 `sweep.sh`,數字才能直接並排比較。
 - 5-1/5-2 由 Claude 透過 ssh 代跑(使用者授權);拋棄式 Redis 密碼當場隨機產生、未落地,跑完已 `down -v`,正式站 4 個 healthy 容器不受影響。主機 `/tmp/ratelimit-bench.jar`、`/tmp/sweep.sh` 留著備查。
+- M9:ADR 0010 §6 從「走 StringRedisTemplate」改為「保留專用長駐連線」:實測 template 每次新開連線,走它會讓正式路徑與 bench 量的形狀不同。放棄:統一 Lua 執行寫法。
+- M9:腳本被擋下時不寫回(狀態可從舊時間補算,結果相同)。放棄:與階段 5 單 key 版一致的「拒絕也寫回」。
+- M9:bench 的 lua-purchase 直接打包 backend 的腳本檔,不複製。放棄:bench 自帶一份(會和正式版漂移)。
 - 階段 5 的判定門檻(安全在途 ≥40 則不需分片)沿用階段 3 的 p99 ≤14ms 與 §5.3 的 13ms 餘裕,先寫進計畫再量,避免看完數字才定標準。
 
 ### ✅ 1-2 順帶確立的事(可沿用)
