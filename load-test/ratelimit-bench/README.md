@@ -30,6 +30,25 @@ Bucket4j + Lettuce CAS 路徑打同一把 key。
 ⚠️ **netty 必須整組同版本**：只釘其中幾個子模組會在執行期炸
 `NoSuchMethodError: PlatformDependent.isExplicitNoPreferDirect`（實測過）。pom 用 `netty-bom` 一次對齊。
 
+## `BENCH_MODE=lua`:原子 Lua token bucket(計畫 §6)
+
+候選替代方案。改打 [`token_bucket.lua`](src/main/resources/token_bucket.lua):讀、算、寫在 Redis 內
+一次完成,**沒有 CAS 重試**,每次檢查固定一個 `EVALSHA`。其餘(單一共享連線、閉環量法、直方圖)
+與 bucket4j 模式完全相同,兩種模式的數字可以直接並排比較。
+
+語意對齊 `RateLimiterService.perSecond()`:capacity 個 token、每秒平滑補滿、初始為滿。時間取 Redis `TIME`,
+狀態以整數「微 token」存成 hash(`t`、`ts`),TTL = 空桶補滿時間 + 1 秒。
+
+本機冒煙(2026-09-25,Windows + Docker Desktop,**只驗正確性,延遲數字不可外推**),每階 10 秒:
+
+| 模式 | capacity | 併發 | 放行/s | p99 |
+|---|---|---|---|---|
+| lua | 100 | 1 / 20 / 100 | 100 / 100 / 100 | 0.5 / 0.6 / 1.3ms |
+| lua | 3000 | 20 / 100 | 3,005 / 3,004 | 0.7 / 1.2ms |
+| bucket4j | 3000 | 20 / 100 | 2,723 / 1,670 | 43 / 345ms |
+
+放行量精準貼齊 capacity(不多放、也不因競爭掉到設定值以下),是這個模式能拿來比較的前提。
+
 ## 量法
 
 閉環（closed loop）：每個 worker 拿到回應就立刻送下一個，所以「併發數」是**在途請求數**，
@@ -92,6 +111,7 @@ Redis 沒滿而 bench 容器約 100%(單核)→ 瓶頸在 client 端 event loop�
 
 | 變數 | 預設 | 說明 |
 |---|---|---|
+| `BENCH_MODE` | `bucket4j` | `bucket4j`(正式站現行 CAS 路徑)或 `lua`(候選) |
 | `REDIS_URI` | 必填 | 例如 `redis://:password@seckill-redis-bench:6379/0`。程式不會把它印出來（含密碼） |
 | `BENCH_KEY` | `seckill:rl:global` | 要打的 key |
 | `BENCH_CAPACITY` | 3000 | 桶容量，對齊正式站 `global-capacity` |

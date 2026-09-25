@@ -6,16 +6,21 @@ import io.github.bucket4j.distributed.proxy.ProxyManager;
 import io.github.bucket4j.redis.lettuce.Bucket4jLettuce;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisURI;
+import io.lettuce.core.ScriptOutputType;
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.codec.ByteArrayCodec;
 import io.lettuce.core.codec.RedisCodec;
 import io.lettuce.core.codec.StringCodec;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.BooleanSupplier;
 
 /**
  * 階段 3:量單一 Redis 節點面對瞬間爆量的 Bucket4j CAS 檢查,能撐到多少併發而不讓排隊延遲失控。
@@ -41,8 +46,13 @@ import java.util.concurrent.atomic.LongAdder;
  * 計時涵蓋從呼叫到拿到回應的 wall-clock,與 {@code seckill.ratelimit.check.duration} 同定義,
  * 天然含 Redis 單執行緒的佇列等待。
  *
+ * <p><b>{@code BENCH_MODE=lua}</b>(計畫 §6,Lua token bucket 評估):改打 {@code token_bucket.lua},
+ * 讀、算、寫在 Redis 內一次完成,沒有 CAS 重試。同樣是單一共享連線、同樣的閉環量法,
+ * 兩種模式的數字才能直接對照。
+ *
  * <p>用法(環境變數):
  * <pre>
+ *   BENCH_MODE           bucket4j(預設,正式站現行路徑)或 lua
  *   REDIS_URI            必填,例如 redis://:password@seckill-redis-bench:6379/0
  *   BENCH_KEY            預設 seckill:rl:global
  *   BENCH_CAPACITY       預設 3000(對齊正式站 global-capacity)
@@ -63,9 +73,13 @@ public final class GlobalKeyBench {
         int stepSeconds = Integer.parseInt(env("BENCH_STEP_SECONDS", "30"));
         int warmupSeconds = Integer.parseInt(env("BENCH_WARMUP_SECONDS", "5"));
         int gapSeconds = Integer.parseInt(env("BENCH_GAP_SECONDS", "10"));
+        String mode = env("BENCH_MODE", "bucket4j");
+        if (!mode.equals("bucket4j") && !mode.equals("lua")) {
+            throw new IllegalStateException("BENCH_MODE 只能是 bucket4j 或 lua,收到 " + mode);
+        }
 
-        System.out.printf("key=%s capacity=%d steps=%s stepSeconds=%d warmupSeconds=%d%n",
-                key, capacity, rawSteps, stepSeconds, warmupSeconds);
+        System.out.printf("mode=%s key=%s capacity=%d steps=%s stepSeconds=%d warmupSeconds=%d%n",
+                mode, key, capacity, rawSteps, stepSeconds, warmupSeconds);
         // 不印 REDIS_URI:裡面有密碼(CLAUDE.md:祕密不進日誌)
         System.out.printf("redis host=%s%n", RedisURI.create(redisUri).getHost());
 
@@ -73,20 +87,16 @@ public final class GlobalKeyBench {
         try (StatefulRedisConnection<String, byte[]> conn =
                      client.connect(RedisCodec.of(StringCodec.UTF8, ByteArrayCodec.INSTANCE))) {
 
-            ProxyManager<String> proxyManager = Bucket4jLettuce.casBasedBuilder(conn)
-                    .expirationAfterWrite(ExpirationAfterWriteStrategy
-                            .basedOnTimeForRefillingBucketUpToMax(Duration.ofSeconds(10)))
-                    .build();
-            BucketConfiguration config = BucketConfiguration.builder()
-                    .addLimit(limit -> limit.capacity(capacity).refillGreedy(capacity, Duration.ofSeconds(1)))
-                    .build();
+            BooleanSupplier check = mode.equals("lua")
+                    ? luaCheck(conn, key, capacity)
+                    : bucket4jCheck(conn, key, capacity);
 
             System.out.println();
             System.out.println("concurrency |     ops |  ops/s | allowed | throttled | errors |    p50 |    p90 |    p99 |  p99.9 |    max");
             System.out.println("------------+---------+--------+---------+-----------+--------+--------+--------+--------+--------+-------");
 
             for (int concurrency : steps) {
-                StepResult r = runStep(proxyManager, config, key, concurrency, warmupSeconds, stepSeconds);
+                StepResult r = runStep(check, concurrency, warmupSeconds, stepSeconds);
                 System.out.printf("%11d | %7d | %6.0f | %7d | %9d | %6d | %6s | %6s | %6s | %6s | %6d%n",
                         concurrency, r.ops(), r.opsPerSecond(), r.allowed(), r.throttled(), r.errors(),
                         fmt(r.p50Micros()), fmt(r.p90Micros()), fmt(r.p99Micros()), fmt(r.p999Micros()),
@@ -107,8 +117,42 @@ public final class GlobalKeyBench {
                               long p50Micros, long p90Micros, long p99Micros, long p999Micros, long maxMicros) {
     }
 
-    private static StepResult runStep(ProxyManager<String> proxyManager, BucketConfiguration config,
-                                      String key, int concurrency, int warmupSeconds, int stepSeconds)
+    /** 正式站現行路徑,逐項對應見類別註解。 */
+    private static BooleanSupplier bucket4jCheck(StatefulRedisConnection<String, byte[]> conn,
+                                                 String key, long capacity) {
+        ProxyManager<String> proxyManager = Bucket4jLettuce.casBasedBuilder(conn)
+                .expirationAfterWrite(ExpirationAfterWriteStrategy
+                        .basedOnTimeForRefillingBucketUpToMax(Duration.ofSeconds(10)))
+                .build();
+        BucketConfiguration config = BucketConfiguration.builder()
+                .addLimit(limit -> limit.capacity(capacity).refillGreedy(capacity, Duration.ofSeconds(1)))
+                .build();
+        return () -> proxyManager.getProxy(key, () -> config).tryConsume(1);
+    }
+
+    /**
+     * 候選路徑:一次 EVALSHA。腳本開跑前 SCRIPT LOAD 一次,之後只送 SHA,
+     * 與正式站 Spring {@code DefaultRedisScript} 走 EVALSHA 的行為一致。
+     */
+    private static BooleanSupplier luaCheck(StatefulRedisConnection<String, byte[]> conn,
+                                            String key, long capacity) throws IOException {
+        byte[] script;
+        try (InputStream in = GlobalKeyBench.class.getResourceAsStream("/token_bucket.lua")) {
+            if (in == null) {
+                throw new IllegalStateException("jar 內找不到 token_bucket.lua");
+            }
+            script = in.readAllBytes();
+        }
+        String sha = conn.sync().scriptLoad(script);
+        String[] keys = {key};
+        byte[] capacityArg = Long.toString(capacity).getBytes(StandardCharsets.US_ASCII);
+        return () -> {
+            Long r = conn.sync().evalsha(sha, ScriptOutputType.INTEGER, keys, capacityArg, capacityArg);
+            return r != null && r == 1L;
+        };
+    }
+
+    private static StepResult runStep(BooleanSupplier check, int concurrency, int warmupSeconds, int stepSeconds)
             throws InterruptedException {
         AtomicBoolean recording = new AtomicBoolean(false);
         AtomicBoolean running = new AtomicBoolean(true);
@@ -128,7 +172,7 @@ public final class GlobalKeyBench {
                         long start = System.nanoTime();
                         boolean ok;
                         try {
-                            ok = proxyManager.getProxy(key, () -> config).tryConsume(1);
+                            ok = check.getAsBoolean();
                         } catch (RuntimeException e) {
                             errors.increment();
                             continue;
